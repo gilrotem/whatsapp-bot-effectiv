@@ -65,15 +65,17 @@ app.post('/webhook', async (req, res) => {
             const phoneNumberId = body.entry[0].changes[0].value.metadata.phone_number_id;
             const from = message.from; 
             
-            // Generate or retrieve session
-            if (!sessions[from]) {
-                st or create session from DB
-            const session = await getSession(from);
-            
-            // Log incoming message
-            const msgContent = message.text ? message.text.body : (message.interactive ? JSON.stringify(message.interactive) : 'media');
-            await logMessage(from, message.type, msgContent, 'incoming'
             try {
+                // Retrieve or create session in DB
+                const session = await getSession(from);
+
+                // Log incoming message
+                const msgContent = message.text
+                    ? message.text.body
+                    : (message.interactive ? JSON.stringify(message.interactive) : 'media');
+                await logMessage(from, message.type, msgContent, 'incoming');
+
+                // Handle conversation state
                 await handleStateLogic(phoneNumberId, from, message, session);
             } catch (error) {
                 console.error('Error handling state logic:', error);
@@ -183,11 +185,6 @@ async function handleStateLogic(phoneNumberId, from, message, session) {
                 await sendWelcomeMessage(phoneNumberId, from);
             }
             break;
-                 session.current_state = STATES.WELCOME;
-                 await sendWelcomeMessage(phoneNumberId, from);
-            }
-            break;
-            
         case STATES.SUMMARY_HANDOFF:
             await sendWelcomeMessage(phoneNumberId, from);
             await updateSession(from, { current_state: STATES.WELCOME });
