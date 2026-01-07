@@ -1,0 +1,25 @@
+{
+  "name": "whatsapp-bot-meta-api",
+  "version": "1.0.0",
+  "description": "WhatsApp Bot using direct Meta Cloud API",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "keywords": [
+    "whatsapp",
+    "meta",
+    "api",
+    "bot"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "axios": "^1.6.0",
+    "body-parser": "^1.20.2",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "pg": "^8.16.3"
+  }
+}
