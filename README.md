@@ -3,11 +3,6 @@
 WhatsApp chatbot for lead qualification using Meta Cloud API and Postgres.
 
 ## Features
-- ✅ State machine conversation flow
-- ✅ Interactive buttons and menus
-- ✅ PostgreSQL persistence
-- ✅ Lead tracking and logging
-- ✅ Ready for Render deployment
 
 ## Local Development
 
@@ -47,13 +42,6 @@ npm start
 
 ### Step 3: Add Environment Variables
 Add these in Render → Environment:
-- `PORT`: (leave empty, Render auto-assigns)
-- `NODE_ENV`: `production`
-- `VERIFY_TOKEN`: (your Meta verify token)
-- `WHATSAPP_TOKEN`: (your Meta API token)
-- `PHONE_NUMBER_ID`: (your WhatsApp phone number ID)
-- `VERSION`: `v18.0`
-- `DATABASE_URL`: (paste the Postgres Internal URL from Step 1)
 
 ### Step 4: Deploy
 1. Click "Create Web Service"
@@ -70,15 +58,23 @@ Add these in Render → Environment:
 ## Database Schema
 
 ### Tables
-- **sessions**: User conversation state
-- **leads**: Completed lead data  
-- **messages**: Full conversation log
 
 ## Tech Stack
-- Node.js + Express
-- PostgreSQL (Render)
-- Meta Cloud API
-- WhatsApp Business Platform
 
 ## License
 ISC
+
+## Quick Links
+ - Runbook: [docs/Runbook.md](docs/Runbook.md)
+ - Environment: [docs/Environment.md](docs/Environment.md)
+ - Meta Webhook: [docs/MetaWebhook.md](docs/MetaWebhook.md)
+ - Troubleshooting: [docs/Troubleshooting.md](docs/Troubleshooting.md)
+
+## Daily Ops
+ - Health: open `${PUBLIC_URL}/healthz` or run `node scripts/health_check.js`.
+ - Backup DB: `node scripts/backup_db.js` → outputs JSON to `backups/<timestamp>/`.
+ - Redeploy: push to Git, then Deploy from latest commit in Railway.
+
+## Current Status
+ See [docs/Runbook.md](docs/Runbook.md) for the most recent state and next steps.
+- Meta Cloud API
