@@ -7,12 +7,27 @@ const { initDB, getSession, updateSession, saveLead, logMessage } = require('./d
 
 const app = express();
 app.use(bodyParser.json());
+app.set('trust proxy', 1);
 
 const { PORT, VERIFY_TOKEN, WHATSAPP_TOKEN, PHONE_NUMBER_ID, VERSION } = process.env;
 
 // Root route for easy connectivity testing
 app.get('/', (req, res) => {
-    res.send('Bot is running! Tunnel is active.');
+    res.type('text/plain').send('Bot is running! Tunnel is active.');
+});
+
+// HEAD support for platform health checks
+app.head('/', (req, res) => res.sendStatus(200));
+
+// Lightweight health endpoint (no secrets)
+app.get('/healthz', (req, res) => {
+    const safe = {
+        status: 'ok',
+        hasVerifyToken: Boolean(VERIFY_TOKEN),
+        verifyTokenLength: VERIFY_TOKEN ? VERIFY_TOKEN.length : 0,
+        uptimeSec: Math.round(process.uptime()),
+    };
+    res.status(200).json(safe);
 });
 
 // Privacy Policy route for App Live verification
@@ -37,16 +52,26 @@ app.get('/webhook', (req, res) => {
     const token = req.query['hub.verify_token'];
     const challenge = req.query['hub.challenge'];
 
-    if (mode && token) {
-        if (mode === 'subscribe' && token === VERIFY_TOKEN) {
+    // Meta verification flow
+    if (mode === 'subscribe') {
+        console.log('WEBHOOK_VERIFICATION_REQUEST', {
+            hasToken: Boolean(token),
+            tokenLength: token ? String(token).length : 0,
+            hasEnvToken: Boolean(VERIFY_TOKEN),
+            envTokenLength: VERIFY_TOKEN ? VERIFY_TOKEN.length : 0,
+            hasChallenge: Boolean(challenge)
+        });
+        if (token === VERIFY_TOKEN && challenge) {
             console.log('WEBHOOK_VERIFIED');
-            console.log('Challenge:', challenge);
-            res.status(200).send(challenge);
-        } else {
-            console.log('WEBHOOK_VERIFICATION_FAILED', { mode, token });
-            res.sendStatus(403);
+            res.set('Content-Type', 'text/plain');
+            return res.status(200).send(String(challenge));
         }
+        console.log('WEBHOOK_VERIFICATION_FAILED', { mode, token });
+        return res.sendStatus(403);
     }
+
+    // Non-verification probe
+    res.status(200).send('Webhook endpoint');
 });
 
 // --- Incoming Messages (POST) ---
@@ -272,11 +297,16 @@ async function sendInteractiveMessage(phoneNumberId, to, bodyText, buttons) {
 async function startServer() {
     try {
         await initDB();
-        const port = PORT || 3002;
-        app.listen(port, () => {
-            console.log(`✅ Server is listening on port ${port}`);
-            console.log(`✅ Database connected`);
-        });
+        const port = Number(PORT) || 3002;
+        const host = '0.0.0.0';
+        app
+            .listen(port, host, () => {
+                console.log(`✅ Server is listening on port ${port} host ${host}`);
+                console.log(`✅ Database connected`);
+            })
+            .on('error', (err) => {
+                console.error('❌ HTTP server error:', err);
+            });
     } catch (error) {
         console.error('❌ Failed to start server:', error);
         process.exit(1);
@@ -284,3 +314,11 @@ async function startServer() {
 }
 
 startServer();
+
+// Global safety nets
+process.on('uncaughtException', (err) => {
+    console.error('Uncaught Exception:', err);
+});
+process.on('unhandledRejection', (reason) => {
+    console.error('Unhandled Rejection:', reason);
+});
