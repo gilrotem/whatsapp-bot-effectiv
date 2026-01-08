@@ -326,29 +326,28 @@ app.post('/telegram_webhook', async (req, res) => {
 // Initialize database and start server
 async function startServer() {
     try {
-        try {
-            await initDB();
-            console.log(`✅ Database connected`);
-        } catch (dbError) {
-            console.error('⚠️ Database connection failed - starting in limited mode:', dbError.message);
-        }
-
         const port = Number(PORT) || 3002;
         const host = '0.0.0.0';
-        app
-            .listen(port, host, () => {
-                console.log(`✅ Server is listening on port ${port} host ${host}`);
-                
-                // Initialize Telegram Webhook if PUBLIC_URL is set
-                if (process.env.PUBLIC_URL) {
-                    setTelegramWebhook(process.env.PUBLIC_URL);
-                } else {
-                   console.log('⚠️ TELEGRAM NOTE: Configure PUBLIC_URL in .env to enable Telegram Webhook automatically.');
-                }
-            })
-            .on('error', (err) => {
-                console.error('❌ HTTP server error:', err);
-            });
+
+        // Start server IMMEDIATELY to satisfy Railway health checks
+        app.listen(port, host, () => {
+            console.log(`✅ Server is listening on port ${port} host ${host}`);
+
+            // Initialize Telegram Webhook if PUBLIC_URL is set
+            if (process.env.PUBLIC_URL) {
+                setTelegramWebhook(process.env.PUBLIC_URL);
+            } else {
+                console.log('⚠️ TELEGRAM NOTE: Configure PUBLIC_URL in .env to enable Telegram Webhook automatically.');
+            }
+
+            // Connect to DB in background
+            initDB()
+                .then(() => console.log(`✅ Database connected`))
+                .catch(dbError => console.error('⚠️ Database connection failed - starting in limited mode:', dbError.message));
+        }).on('error', (err) => {
+            console.error('❌ HTTP server error:', err);
+        });
+
     } catch (error) {
         console.error('❌ Failed to start server:', error);
         process.exit(1);
