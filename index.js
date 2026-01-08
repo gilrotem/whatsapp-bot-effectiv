@@ -4,6 +4,7 @@ const axios = require('axios');
 require('dotenv').config();
 
 const { initDB, getSession, updateSession, saveLead, logMessage } = require('./db');
+const { sendToTelegram, parseTelegramUpdate, setTelegramWebhook } = require('./telegram_client');
 
 const app = express();
 app.use(bodyParser.json());
@@ -98,6 +99,11 @@ app.post('/webhook', async (req, res) => {
                 const msgContent = message.text
                     ? message.text.body
                     : (message.interactive ? JSON.stringify(message.interactive) : 'media');
+
+                // --- BRIDGE TO TELEGRAM ---
+                await sendToTelegram(`📩 *חדש מאת ${from}*:\n${String(msgContent)}`);
+                // --------------------------
+
                 await logMessage(from, message.type, msgContent, 'incoming');
 
                 // Handle conversation state
@@ -293,16 +299,51 @@ async function sendInteractiveMessage(phoneNumberId, to, bodyText, buttons) {
     });
 }
 
+// --- Telegram Webhook Logic (The Bridge) ---
+app.post('/telegram_webhook', async (req, res) => {
+    // 1. Acknowledge quickly
+    res.sendStatus(200);
+
+    // 2. Process
+    const update = parseTelegramUpdate(req.body);
+    if (!update) return; // Not a relevant message
+
+    const { whatsappPhone, messageText } = update;
+    console.log(`💬 Admin replying to ${whatsappPhone}: ${messageText}`);
+
+    // 3. Send to WhatsApp
+    try {
+        await sendTextMessage(PHONE_NUMBER_ID, whatsappPhone, messageText);
+        await sendToTelegram(`✅ Sent to ${whatsappPhone}`);
+    } catch (err) {
+        console.error('Failed to bridge Telegram -> WhatsApp:', err.message);
+        await sendToTelegram(`❌ Failed to send to ${whatsappPhone}: ${err.message}`);
+    }
+});
+
+
 // Initialize database and start server
 async function startServer() {
     try {
-        await initDB();
+        try {
+            await initDB();
+            console.log(`✅ Database connected`);
+        } catch (dbError) {
+            console.error('⚠️ Database connection failed - starting in limited mode:', dbError.message);
+        }
+
         const port = Number(PORT) || 3002;
         const host = '0.0.0.0';
         app
             .listen(port, host, () => {
                 console.log(`✅ Server is listening on port ${port} host ${host}`);
-                console.log(`✅ Database connected`);
+                
+                // Initialize Telegram Webhook if PUBLIC_URL is set
+                if (process.env.PUBLIC_URL) {
+                    setTelegramWebhook(process.env.PUBLIC_URL);
+                } else {
+                   console.log('⚠️ TELEGRAM NOTE: Configure PUBLIC_URL in .env to enable Telegram Webhook automatically.');
+                }
             })
             .on('error', (err) => {
                 console.error('❌ HTTP server error:', err);

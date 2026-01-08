@@ -7,6 +7,7 @@ This runbook captures the current state, how to operate the service, and the nex
 - Database (Postgres) is connected; tables initialized.
 - Health and webhook handlers are implemented in `index.js`.
 - Webhook verification in Meta is failing with "Application failed to respond" at the callback URL.
+- **Local Fix applied:** `index.js` now allows starting without a database connection to facilitate webhook verification/debugging locally.
 
 ## Next Critical Steps
 1. Verify public endpoints respond:
