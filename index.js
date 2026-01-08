@@ -17,11 +17,11 @@ app.use((req, res, next) => {
     next();
 });
 
-const { PORT, VERIFY_TOKEN, WHATSAPP_TOKEN, PHONE_NUMBER_ID, VERSION } = process.env;
+const { PORT: PORT_ENV, VERIFY_TOKEN, WHATSAPP_TOKEN, PHONE_NUMBER_ID, VERSION } = process.env;
 
 // Root route for easy connectivity testing
 app.get('/', (req, res) => {
-    res.type('text/plain').send('Bot is running! Tunnel is active.');
+    res.status(200).send('Bot is running! 🚀');
 });
 
 // HEAD support for platform health checks
@@ -42,7 +42,7 @@ app.get('/healthz', (req, res) => {
 // Explicitly add /health for Railway default checks
 app.get('/health', (req, res) => {
     console.log('💓 /health check requested');
-    res.status(200).send('OK');
+    res.status(200).json({ status: 'ok', time: new Date().toISOString() });
 });
 
 // Privacy Policy route for App Live verification
@@ -371,12 +371,12 @@ async function startServer() {
     }
 
     try {
-        const port = Number(PORT) || 3002;
-        const host = '0.0.0.0';
+        // THE FIX: Listen explicitly on process.env.PORT (Railway injects this)
+        const port = PORT_ENV || 3000;
 
         // Start server IMMEDIATELY to satisfy Railway health checks
-        app.listen(port, host, () => {
-            console.log(`✅ Server is listening on port ${port} host ${host}`);
+        app.listen(port, '0.0.0.0', () => {
+            console.log(`Server is running strictly on port: ${port}`);
 
             // Initialize Telegram Webhook if PUBLIC_URL is set
             if (process.env.PUBLIC_URL) {
