@@ -39,6 +39,12 @@ app.get('/healthz', (req, res) => {
     res.status(200).json(safe);
 });
 
+// Explicitly add /health for Railway default checks
+app.get('/health', (req, res) => {
+    console.log('💓 /health check requested');
+    res.status(200).send('OK');
+});
+
 // Privacy Policy route for App Live verification
 app.get('/privacy', (req, res) => {
     res.send('This is a development privacy policy. We value your privacy.');
