@@ -1,0 +1,33 @@
+{
+    "messages": {
+        "welcome": "שלום וברוכים הבאים לאפקטיב 🏡. כדי שנוכל לתת שירות מהיר ויעיל, באיזה נושא הפנייה?",
+        "sales_question_size": "בשמחה! כדי שנתאים לך דגם מדויק, מה גודל המחסן שאתה מחפש בערך?",
+        "sales_question_floor": "תודה. שאלה קריטית להתקנה: האם יש במקום המיועד משטח קשיח ומפולס (בטון/ריצוף)?",
+        "sales_floor_warning": "שימו לב: להתקנת מחסן חובה משטח ישר. נציג יסביר על פתרונות רצפה בהמשך. 🏗️\n\n",
+        "sales_location_last_step": "שאלה אחרונה לסיום - לאיזו עיר המשלוח?",
+        "order_status_instruction": "לבירור סטטוס הזמנה, אנא שלח במייל את מספר ההזמנה ל- support@garden.com",
+        "human_handoff_response": "העברתי את הפנייה לצוות השירות. נחזור אליך בהקדם.",
+        "global_handoff_response": "העברתי את בקשתך לנציג אנושי. ניצור קשר בהקדם! 👨‍💼",
+        "validation_select_size": "אנא בחר גודל מהאפשרויות למטה 👇",
+        "validation_select_floor": "אנא בחר את סוג המשטח מהכפתורים 👇",
+        "validation_enter_city": "אנא כתוב את שם העיר (טקסט חופשי).",
+        "lead_completion_summary": "רשמתי הכל! ✅ העברתי את הפרטים לנציג מומחה שיחזור אליך עם מחיר והתאמה מדויקת (כולל הובלה ל{city}). \nבינתיים אפשר להציץ בקטלוג: \nhttps://www.effective-shop.co.il/190052-garden-warehouses\nיום מקסים!"
+    },
+    "buttons": {
+        "welcome_menu": [
+            { "id": "btn_sales", "title": "מתעניין במחסן" },
+            { "id": "btn_order", "title": "בירור הזמנה" },
+            { "id": "btn_support", "title": "נציג שירות" }
+        ],
+        "size_options": [
+            { "id": "size_small", "title": "קטן (מרפסת)" },
+            { "id": "size_medium", "title": "בינוני (רגיל)" },
+            { "id": "size_large", "title": "גדול / ענק" }
+        ],
+        "floor_options": [
+            { "id": "floor_yes", "title": "כן, יש משטח" },
+            { "id": "floor_no", "title": "לא, יש אדמה" },
+            { "id": "floor_unsure", "title": "טרם ידוע" }
+        ]
+    }
+}

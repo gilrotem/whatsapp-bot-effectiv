@@ -5,6 +5,7 @@ require('dotenv').config();
 
 const { initDB, getSession, updateSession, saveLead, logMessage } = require('./db');
 const { sendToTelegram, parseTelegramUpdate, setTelegramWebhook } = require('./telegram_client');
+const botConfig = require('./botConfig.json');
 
 const app = express();
 app.use(bodyParser.json());
@@ -91,6 +92,12 @@ app.post('/webhook', async (req, res) => {
             const phoneNumberId = body.entry[0].changes[0].value.metadata.phone_number_id;
             const from = message.from; 
             
+            // 2. Anti-Echo (Prevent infinite loops)
+            if (from === process.env.PHONE_NUMBER_ID) {
+                 res.sendStatus(200);
+                 return;
+            }
+
             try {
                 // Retrieve or create session in DB
                 const session = await getSession(from);
@@ -105,6 +112,14 @@ app.post('/webhook', async (req, res) => {
                 // --------------------------
 
                 await logMessage(from, message.type, msgContent, 'incoming');
+
+                // 3. Handoff Check: Stop bot if in handoff (unless resetting)
+                const isReset = msgContent && (String(msgContent).toLowerCase() === 'reset' || msgContent === 'התחל');
+                if (session.current_state === STATES.HUMAN_HANDOFF && !isReset) {
+                    console.log(`Skipping bot logic for ${from} (HANDOFF active)`);
+                    res.sendStatus(200);
+                    return;
+                }
 
                 // Handle conversation state
                 await handleStateLogic(phoneNumberId, from, message, session);
@@ -140,7 +155,7 @@ async function handleStateLogic(phoneNumberId, from, message, session) {
     // Human Handoff Check (Global)
     if (userInput && (userInput.includes('נציג') || userInput.includes('אנושי') || userInput.toLowerCase().includes('agent'))) {
         await updateSession(from, { current_state: STATES.HUMAN_HANDOFF });
-        await sendTextMessage(phoneNumberId, from, "העברתי את בקשתך לנציג אנושי. ניצור קשר בהקדם! 👨‍💼");
+        await sendTextMessage(phoneNumberId, from, botConfig.messages.global_handoff_response);
         return;
     }
 
@@ -152,11 +167,11 @@ async function handleStateLogic(phoneNumberId, from, message, session) {
                     await updateSession(from, { current_state: STATES.QUALIFY_SIZE, intent: 'sales' });
                     await sendSizeQuestion(phoneNumberId, from);
                 } else if (buttonId === 'btn_order') {
-                    await sendTextMessage(phoneNumberId, from, "לבירור סטטוס הזמנה, אנא שלח במייל את מספר ההזמנה ל- support@garden.com");
+                    await sendTextMessage(phoneNumberId, from, botConfig.messages.order_status_instruction);
                     await updateSession(from, { current_state: STATES.WELCOME });
                 } else if (buttonId === 'btn_support') {
                     await updateSession(from, { current_state: STATES.HUMAN_HANDOFF });
-                    await sendTextMessage(phoneNumberId, from, "העברתי את הפנייה לצוות השירות. נחזור אליך בהקדם.");
+                    await sendTextMessage(phoneNumberId, from, botConfig.messages.human_handoff_response);
                 }
             } else {
                 await sendWelcomeMessage(phoneNumberId, from);
@@ -168,7 +183,7 @@ async function handleStateLogic(phoneNumberId, from, message, session) {
                 await updateSession(from, { shed_size: userInput, current_state: STATES.QUALIFY_FLOOR });
                 await sendFlooringQuestion(phoneNumberId, from);
             } else {
-                await sendTextMessage(phoneNumberId, from, "אנא בחר גודל מהאפשרויות למטה 👇");
+                await sendTextMessage(phoneNumberId, from, botConfig.messages.validation_select_size);
                 await sendSizeQuestion(phoneNumberId, from);
             }
             break;
@@ -179,12 +194,12 @@ async function handleStateLogic(phoneNumberId, from, message, session) {
                 
                 let preText = "";
                 if (buttonId === 'floor_no') {
-                    preText = "שימו לב: להתקנת מחסן חובה משטח ישר. נציג יסביר על פתרונות רצפה בהמשך. 🏗️\n\n";
+                    preText = botConfig.messages.sales_floor_warning;
                 }
                 
-                await sendTextMessage(phoneNumberId, from, preText + "שאלה אחרונה לסיום - לאיזו עיר המשלוח?");
+                await sendTextMessage(phoneNumberId, from, preText + botConfig.messages.sales_location_last_step);
             } else {
-                await sendTextMessage(phoneNumberId, from, "אנא בחר את סוג המשטח מהכפתורים 👇");
+                await sendTextMessage(phoneNumberId, from, botConfig.messages.validation_select_floor);
                 await sendFlooringQuestion(phoneNumberId, from);
             }
             break;
@@ -197,8 +212,8 @@ async function handleStateLogic(phoneNumberId, from, message, session) {
                 session.lead_data.city = userInput; // Update local object for saveLead
                 await saveLead(session);
                 
-                const catalogLink = "https://www.effective-shop.co.il/190052-garden-warehouses";
-                const summaryMsg = `רשמתי הכל! ✅ העברתי את הפרטים לנציג מומחה שיחזור אליך עם מחיר והתאמה מדויקת (כולל הובלה ל${userInput}). \nבינתיים אפשר להציץ בקטלוג: \n${catalogLink}\nיום מקסים!`;
+                // Construct summary message from config
+                const summaryMsg = botConfig.messages.lead_completion_summary.replace('{city}', userInput);
                 await sendTextMessage(phoneNumberId, from, summaryMsg);
                 
                 console.log("!!! NEW LEAD COMPLETED !!!", session);
@@ -206,7 +221,7 @@ async function handleStateLogic(phoneNumberId, from, message, session) {
                 // Reset to welcome
                 await updateSession(from, { current_state: STATES.WELCOME });
             } else {
-                await sendTextMessage(phoneNumberId, from, "אנא כתוב את שם העיר (טקסט חופשי).");
+                await sendTextMessage(phoneNumberId, from, botConfig.messages.validation_enter_city);
             }
             break;
 
@@ -231,32 +246,29 @@ async function handleStateLogic(phoneNumberId, from, message, session) {
 // --- Message Helper Functions ---
 
 async function sendWelcomeMessage(phoneNumberId, to) {
-    const text = "שלום וברוכים הבאים לאפקטיב 🏡. כדי שנוכל לתת שירות מהיר ויעיל, באיזה נושא הפנייה?";
-    const buttons = [
-        { type: "reply", reply: { id: "btn_sales", title: "מתעניין במחסן" } },
-        { type: "reply", reply: { id: "btn_order", title: "בירור הזמנה" } },
-        { type: "reply", reply: { id: "btn_support", title: "נציג שירות" } }
-    ];
+    const text = botConfig.messages.welcome;
+    const buttons = botConfig.buttons.welcome_menu.map(btn => ({ 
+        type: "reply", 
+        reply: { id: btn.id, title: btn.title } 
+    }));
     await sendInteractiveMessage(phoneNumberId, to, text, buttons);
 }
 
 async function sendSizeQuestion(phoneNumberId, to) {
-    const text = "בשמחה! כדי שנתאים לך דגם מדויק, מה גודל המחסן שאתה מחפש בערך?";
-    const buttons = [
-        { type: "reply", reply: { id: "size_small", title: "קטן (מרפסת)" } },
-        { type: "reply", reply: { id: "size_medium", title: "בינוני (רגיל)" } },
-        { type: "reply", reply: { id: "size_large", title: "גדול / ענק" } }
-    ];
+    const text = botConfig.messages.sales_question_size;
+    const buttons = botConfig.buttons.size_options.map(btn => ({ 
+        type: "reply", 
+        reply: { id: btn.id, title: btn.title } 
+    }));
     await sendInteractiveMessage(phoneNumberId, to, text, buttons);
 }
 
 async function sendFlooringQuestion(phoneNumberId, to) {
-    const text = "תודה. שאלה קריטית להתקנה: האם יש במקום המיועד משטח קשיח ומפולס (בטון/ריצוף)?";
-    const buttons = [
-        { type: "reply", reply: { id: "floor_yes", title: "כן, יש משטח" } },
-        { type: "reply", reply: { id: "floor_no", title: "לא, יש אדמה" } },
-        { type: "reply", reply: { id: "floor_unsure", title: "טרם ידוע" } }
-    ];
+    const text = botConfig.messages.sales_question_floor;
+    const buttons = botConfig.buttons.floor_options.map(btn => ({ 
+        type: "reply", 
+        reply: { id: btn.id, title: btn.title } 
+    }));
     await sendInteractiveMessage(phoneNumberId, to, text, buttons);
 }
 
@@ -325,6 +337,16 @@ app.post('/telegram_webhook', async (req, res) => {
 
 // Initialize database and start server
 async function startServer() {
+    // 1. Fail Fast: Check critical configuration
+    // Note: DATABASE_URL is not critical for local dev (uses Mock DB)
+    const missingEnvs = ['VERIFY_TOKEN', 'WHATSAPP_TOKEN', 'PHONE_NUMBER_ID']
+        .filter(key => !process.env[key]);
+        
+    if (missingEnvs.length > 0) {
+        console.error(`❌ CRITICAL ERROR: Missing environment variables: ${missingEnvs.join(', ')}`);
+        process.exit(1);
+    }
+
     try {
         const port = Number(PORT) || 3002;
         const host = '0.0.0.0';

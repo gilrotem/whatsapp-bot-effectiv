@@ -1,10 +1,91 @@
 const { Pool } = require('pg');
 
 // Create PostgreSQL connection pool
-const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
-});
+const isProduction = process.env.NODE_ENV === 'production';
+let pool;
+
+if (process.env.DATABASE_URL) {
+    const poolConfig = {
+        connectionString: process.env.DATABASE_URL,
+        ssl: isProduction ? { rejectUnauthorized: false } : false
+    };
+    pool = new Pool(poolConfig);
+} else {
+    console.warn("⚠️ DATABASE_URL not found. Using In-Memory Mock Database.");
+    // Mock Pool for local testing
+    pool = {
+        connect: async () => ({
+            query: async (text, params) => mockQuery(text, params),
+            release: () => {}
+        }),
+        query: async (text, params) => mockQuery(text, params)
+    };
+}
+
+// Check if pool is real or mock
+const isMock = !process.env.DATABASE_URL;
+
+// --- MOCK DATABASE IMPLEMENTATION ---
+const mockStorage = {
+    sessions: {},
+    leads: [],
+    messages: []
+};
+
+async function mockQuery(text, params = []) {
+    const query = text.trim().toUpperCase();
+    
+    // MOCK: Init DB
+    if (query.startsWith('CREATE TABLE')) {
+        return { rows: [] };
+    }
+
+    // MOCK: Get Session
+    if (query.startsWith('SELECT * FROM SESSIONS')) {
+        const phone = params[0];
+        const session = mockStorage.sessions[phone];
+        return { rows: session ? [session] : [] }; // Return array of rows
+    }
+
+    // MOCK: Create Session (Insert)
+    if (query.startsWith('INSERT INTO SESSIONS')) {
+        const phone = params[0];
+        const state = params[1];
+        mockStorage.sessions[phone] = {
+            phone_number: phone,
+            current_state: state,
+            intent: null,
+            shed_size: null,
+            flooring_status: null,
+            city: null,
+            created_at: new Date(),
+            updated_at: new Date()
+        };
+        return { rowCount: 1 };
+    }
+
+    // MOCK: Update Session
+    if (query.startsWith('UPDATE SESSIONS')) {
+        // Very basic mock parser for the update logic in this app
+        const phone = params[params.length - 1]; // Last param is always phone in updateSession
+        if (mockStorage.sessions[phone]) {
+            // Update the mock object fields based on the params passed (naive mapping)
+            // Note: In a real mock this would need complex SQL parsing, 
+            // but for our specific app usage, we can infer updates.
+            // For now, let's just update the timestamp to show activity.
+            mockStorage.sessions[phone].updated_at = new Date(); 
+            
+            // We need to actually update the fields to test state transitions.
+            // Since mapping SQL params back to fields is hard without parsing,
+            // we will rely on the app logic to just work, but we might miss storing value
+            // in the mock. For the purpose of "Seeing it work", logging is enough.
+        }
+        return { rowCount: 1 };
+    }
+    
+    // Default fallback
+    return { rows: [] };
+}
 
 // Initialize database tables
 async function initDB() {
@@ -111,6 +192,15 @@ async function getSession(phoneNumber) {
 
 // Update session
 async function updateSession(phoneNumber, updates) {
+    if (isMock) {
+        if (mockStorage.sessions[phoneNumber]) {
+            Object.assign(mockStorage.sessions[phoneNumber], updates);
+            mockStorage.sessions[phoneNumber].updated_at = new Date();
+            console.log(`[MOCK DB] Updated session for ${phoneNumber}:`, updates);
+        }
+        return;
+    }
+
     const client = await pool.connect();
     try {
         const setClauses = [];
