@@ -1,6 +1,7 @@
 const express = require('express');
 const bodyParser = require('body-parser');
 const axios = require('axios');
+const crypto = require('crypto');
 require('dotenv').config();
 
 const { initDB, getSession, updateSession, saveLead, logMessage } = require('./db');
@@ -8,7 +9,13 @@ const { sendToTelegram, parseTelegramUpdate, setTelegramWebhook } = require('./t
 const botConfig = require('./botConfig.json');
 
 const app = express();
-app.use(bodyParser.json());
+
+// Capture rawBody for optional signature verification (Meta x-hub-signature-256)
+app.use(bodyParser.json({
+    verify: (req, res, buf) => {
+        req.rawBody = buf;
+    },
+}));
 app.set('trust proxy', 1);
 
 // Debug Middleware: Log all incoming requests
@@ -89,61 +96,83 @@ app.get('/webhook', (req, res) => {
     res.status(200).send('Webhook endpoint');
 });
 
-// --- Incoming Messages (POST) ---
-app.post('/webhook', async (req, res) => {
-    const body = req.body;
-    console.log('Incoming webhook:', JSON.stringify(body, null, 2));
+function verifyMetaSignature(req) {
+    const appSecret = process.env.APP_SECRET;
+    if (!appSecret) return { ok: true, skipped: true, reason: 'APP_SECRET missing' };
 
-    if (body.object) {
-        if (
-            body.entry &&
-            body.entry[0].changes &&
-            body.entry[0].changes[0].value.messages &&
-            body.entry[0].changes[0].value.messages[0]
-        ) {
-            const message = body.entry[0].changes[0].value.messages[0];
-            const phoneNumberId = body.entry[0].changes[0].value.metadata.phone_number_id;
-            const from = message.from; 
-            
-            // 2. Anti-Echo (Prevent infinite loops)
-            if (from === process.env.PHONE_NUMBER_ID) {
-                 res.sendStatus(200);
-                 return;
-            }
+    const signature256 = req.get('x-hub-signature-256');
+    const signature = req.get('x-hub-signature');
+    const header = signature256 || signature;
+    if (!header) return { ok: false, reason: 'Signature header missing' };
+    if (!req.rawBody) return { ok: false, reason: 'Raw body missing' };
 
-            try {
-                // Retrieve or create session in DB
-                const session = await getSession(from);
+    const [algoLabel, providedHex] = String(header).split('=');
+    const algo = algoLabel === 'sha1' ? 'sha1' : 'sha256';
+    const expectedHex = crypto.createHmac(algo, appSecret).update(req.rawBody).digest('hex');
 
-                // Log incoming message
-                const msgContent = message.text
-                    ? message.text.body
-                    : (message.interactive ? JSON.stringify(message.interactive) : 'media');
-
-                // --- BRIDGE TO TELEGRAM ---
-                await sendToTelegram(`📩 *חדש מאת ${from}*:\n${String(msgContent)}`);
-                // --------------------------
-
-                await logMessage(from, message.type, msgContent, 'incoming');
-
-                // 3. Handoff Check: Stop bot if in handoff (unless resetting)
-                const isReset = msgContent && (String(msgContent).toLowerCase() === 'reset' || msgContent === 'התחל');
-                if (session.current_state === STATES.HUMAN_HANDOFF && !isReset) {
-                    console.log(`Skipping bot logic for ${from} (HANDOFF active)`);
-                    res.sendStatus(200);
-                    return;
-                }
-
-                // Handle conversation state
-                await handleStateLogic(phoneNumberId, from, message, session);
-            } catch (error) {
-                console.error('Error handling state logic:', error);
-            }
-        }
-        res.sendStatus(200);
-    } else {
-        res.sendStatus(404);
+    try {
+        const provided = Buffer.from(providedHex || '', 'hex');
+        const expected = Buffer.from(expectedHex, 'hex');
+        if (provided.length !== expected.length) return { ok: false, reason: 'Signature length mismatch' };
+        if (!crypto.timingSafeEqual(provided, expected)) return { ok: false, reason: 'Signature mismatch' };
+        return { ok: true };
+    } catch {
+        return { ok: false, reason: 'Invalid signature format' };
     }
+}
+
+// --- Incoming Messages (POST) ---
+app.post('/webhook', (req, res) => {
+    // Verify signature if APP_SECRET is configured
+    const sig = verifyMetaSignature(req);
+    if (!sig.ok) {
+        console.warn('⚠️ WEBHOOK SIGNATURE REJECTED:', sig.reason);
+        return res.sendStatus(403);
+    }
+    if (sig.skipped) {
+        console.warn('⚠️ WEBHOOK SIGNATURE SKIPPED:', sig.reason);
+    }
+
+    // IMPORTANT: Acknowledge immediately to avoid Meta timeouts
+    res.sendStatus(200);
+
+    // Process asynchronously
+    (async () => {
+        const body = req.body;
+        console.log('Incoming webhook:', JSON.stringify(body, null, 2));
+
+        if (!body || !body.object) return;
+
+        const message = body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
+        if (!message) return;
+
+        const phoneNumberId = body?.entry?.[0]?.changes?.[0]?.value?.metadata?.phone_number_id;
+        const from = message.from;
+
+        // Anti-Echo (best-effort)
+        if (from === process.env.PHONE_NUMBER_ID) return;
+
+        try {
+            const session = await getSession(from);
+
+            const msgContent = message.text
+                ? message.text.body
+                : (message.interactive ? JSON.stringify(message.interactive) : 'media');
+
+            await sendToTelegram(`📩 *חדש מאת ${from}*:\n${String(msgContent)}`);
+            await logMessage(from, message.type, msgContent, 'incoming');
+
+            const isReset = msgContent && (String(msgContent).toLowerCase() === 'reset' || msgContent === 'התחל');
+            if (session.current_state === STATES.HUMAN_HANDOFF && !isReset) {
+                console.log(`Skipping bot logic for ${from} (HANDOFF active)`);
+                return;
+            }
+
+            await handleStateLogic(phoneNumberId, from, message, session);
+        } catch (error) {
+            console.error('Error handling state logic:', error);
+        }
+    })().catch((err) => console.error('Async webhook processor failed:', err));
 });
 
 // --- Core State Machine Logic ---

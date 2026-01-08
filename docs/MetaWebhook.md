@@ -15,6 +15,9 @@ Meta sends a GET request to your webhook URL:
   - Check Railway HTTP Logs for the exact request path and status.
   - Confirm service is public and listening on port `PORT` (Railway shows 8080).
   - Ensure `/webhook` GET responds quickly and with `text/plain`.
+-  If POST requests are rejected (403):
+  - If `APP_SECRET` is set, the server validates `x-hub-signature-256` / `x-hub-signature`.
+  - Ensure Meta is sending the signature headers and the `APP_SECRET` matches the Meta App secret.
 - 403 on verification:
   - `VERIFY_TOKEN` mismatch. Verify the value in Railway Variables.
 - 504/timeout:
