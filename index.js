@@ -301,23 +301,24 @@ async function sendInteractiveMessage(phoneNumberId, to, bodyText, buttons) {
 
 // --- Telegram Webhook Logic (The Bridge) ---
 app.post('/telegram_webhook', async (req, res) => {
-    // 1. Acknowledge quickly
-    res.sendStatus(200);
-
-    // 2. Process
-    const update = parseTelegramUpdate(req.body);
-    if (!update) return; // Not a relevant message
-
-    const { whatsappPhone, messageText } = update;
-    console.log(`💬 Admin replying to ${whatsappPhone}: ${messageText}`);
-
-    // 3. Send to WhatsApp
     try {
+        // 1. Acknowledge quickly
+        res.sendStatus(200);
+
+        // 2. Process
+        const update = parseTelegramUpdate(req.body);
+        if (!update) return; // Not a relevant message
+
+        const { whatsappPhone, messageText } = update;
+        console.log(`💬 Admin replying to ${whatsappPhone}: ${messageText}`);
+
+        // 3. Send to WhatsApp
         await sendTextMessage(PHONE_NUMBER_ID, whatsappPhone, messageText);
         await sendToTelegram(`✅ Sent to ${whatsappPhone}`);
     } catch (err) {
-        console.error('Failed to bridge Telegram -> WhatsApp:', err.message);
-        await sendToTelegram(`❌ Failed to send to ${whatsappPhone}: ${err.message}`);
+        console.error('❌ Error in /telegram_webhook handler:', err.message);
+        // We already sent 200, so we can't send another response.
+        // But we catch the error to prevent any crash.
     }
 });
 
