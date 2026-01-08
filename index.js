@@ -23,6 +23,7 @@ app.head('/', (req, res) => res.sendStatus(200));
 
 // Lightweight health endpoint (no secrets)
 app.get('/healthz', (req, res) => {
+    console.log('💓 Health check requested');
     const safe = {
         status: 'ok',
         hasVerifyToken: Boolean(VERIFY_TOKEN),
@@ -378,6 +379,9 @@ async function startServer() {
 
 startServer();
 
+// Loop to prevent immediate exit if something goes wrong, but keeps process alive
+setInterval(() => {}, 1000);
+
 // Global safety nets
 process.on('uncaughtException', (err) => {
     console.error('Uncaught Exception:', err);
@@ -385,3 +389,9 @@ process.on('uncaughtException', (err) => {
 process.on('unhandledRejection', (reason) => {
     console.error('Unhandled Rejection:', reason);
 });
+process.on('SIGTERM', () => {
+    console.log('🛑 Received SIGTERM. Gracefully shutting down...');
+    process.exit(0);
+});
+
+console.log('🚀 Index.js loaded. Waiting for startServer()...');
