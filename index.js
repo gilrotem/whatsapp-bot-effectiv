@@ -372,7 +372,8 @@ async function startServer() {
 
     try {
         // THE FIX: Listen explicitly on process.env.PORT (Railway injects this)
-        const port = PORT_ENV || 3000;
+        // IMPORTANT: coerce to number; passing a string can be treated as a named pipe.
+        const port = Number(process.env.PORT) || 3000;
 
         // Start server IMMEDIATELY to satisfy Railway health checks
         app.listen(port, '0.0.0.0', () => {
