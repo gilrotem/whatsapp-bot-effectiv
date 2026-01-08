@@ -11,6 +11,12 @@ const app = express();
 app.use(bodyParser.json());
 app.set('trust proxy', 1);
 
+// Debug Middleware: Log all incoming requests
+app.use((req, res, next) => {
+    console.log(`[HTTP] ${req.method} ${req.url} from ${req.ip}`);
+    next();
+});
+
 const { PORT, VERIFY_TOKEN, WHATSAPP_TOKEN, PHONE_NUMBER_ID, VERSION } = process.env;
 
 // Root route for easy connectivity testing
