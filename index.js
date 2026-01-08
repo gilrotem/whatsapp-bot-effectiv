@@ -195,7 +195,7 @@ async function handleStateLogic(phoneNumberId, from, message, session) {
     console.log(`Processing State: ${session.current_state}, Input: ${userInput}, ButtonID: ${buttonId}`);
 
     // Human Handoff Check (Global)
-    if (userInput && (userInput.includes('נציג') || userInput.includes('אנושי') || userInput.toLowerCase().includes('agent'))) {
+    if (userInput && (userInput.includes('נציג') || userInput.includes('אנושי') || userInput.toLowerCase().includes('agent') || userInput.toLowerCase().includes('human'))) {
         await updateSession(from, { current_state: STATES.HUMAN_HANDOFF });
         await sendTextMessage(phoneNumberId, from, botConfig.messages.global_handoff_response);
         return;
