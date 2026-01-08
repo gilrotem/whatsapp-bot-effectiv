@@ -346,12 +346,22 @@ app.post('/telegram_webhook', async (req, res) => {
 async function startServer() {
     // 1. Fail Fast: Check critical configuration
     // Note: DATABASE_URL is not critical for local dev (uses Mock DB)
+    /* 
+    // TEMPORARILY DISABLED TO PREVENT CRASH LOOPS ON RAILWAY
+    // We want the server to stay alive even if variables are missing, so we can see the logs.
     const missingEnvs = ['VERIFY_TOKEN', 'WHATSAPP_TOKEN', 'PHONE_NUMBER_ID']
         .filter(key => !process.env[key]);
         
     if (missingEnvs.length > 0) {
         console.error(`❌ CRITICAL ERROR: Missing environment variables: ${missingEnvs.join(', ')}`);
         process.exit(1);
+    }
+    */
+    const missingEnvs = ['VERIFY_TOKEN', 'WHATSAPP_TOKEN', 'PHONE_NUMBER_ID']
+        .filter(key => !process.env[key]);
+        
+    if (missingEnvs.length > 0) {
+        console.warn(`⚠️ WARNING: Missing environment variables: ${missingEnvs.join(', ')}. App will start but messaging may fail.`);
     }
 
     try {
