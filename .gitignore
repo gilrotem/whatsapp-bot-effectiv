@@ -4,3 +4,4 @@ node_modules/
 *.log
 .vscode/
 .idea/
+scripts/reset_handoff.last.json

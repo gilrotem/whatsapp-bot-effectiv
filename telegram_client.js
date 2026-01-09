@@ -9,6 +9,13 @@ let ADMIN_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 
 const BASE_URL = `https://api.telegram.org/bot${TELEGRAM_TOKEN}`;
 
+function normalizeTelegramChatId(chatId) {
+    if (chatId == null) return chatId;
+    const trimmed = String(chatId).trim();
+    if (/^-?\d+$/.test(trimmed)) return Number(trimmed);
+    return trimmed;
+}
+
 /**
  * Sends a message to the Telegram admin.
  * @param {string} text - The text to send.
@@ -20,13 +27,51 @@ async function sendToTelegram(text) {
     }
 
     try {
-        await axios.post(`${BASE_URL}/sendMessage`, {
-            chat_id: ADMIN_CHAT_ID,
-            text: text,
+        const url = `${BASE_URL}/sendMessage`;
+        const chatId = normalizeTelegramChatId(ADMIN_CHAT_ID);
+        const basePayload = {
+            chat_id: chatId,
+            text: text
+        };
+
+        const payloadMarkdown = {
+            ...basePayload,
             parse_mode: 'Markdown'
-        });
+        };
+
+        console.log(`[Telegram Debug] Sending to URL: ${url}`);
+        console.log(`[Telegram Debug] Payload (Markdown): ${JSON.stringify(payloadMarkdown, null, 2)}`);
+
+        await axios.post(url, payloadMarkdown);
     } catch (error) {
         console.error('❌ Failed to send to Telegram:', error.message);
+        if (error.response) {
+            console.error('Telegram Error Response Data:', JSON.stringify(error.response.data, null, 2));
+        }
+
+        const description = error?.response?.data?.description || '';
+        const isMarkdownParseError =
+            error?.response?.status === 400 &&
+            /can't parse entities|cant parse entities|parse entities/i.test(description);
+
+        if (isMarkdownParseError) {
+            try {
+                const url = `${BASE_URL}/sendMessage`;
+                const chatId = normalizeTelegramChatId(ADMIN_CHAT_ID);
+                const payloadPlain = {
+                    chat_id: chatId,
+                    text: text
+                };
+                console.warn('[Telegram Debug] Retrying without parse_mode due to Markdown parse error.');
+                console.log(`[Telegram Debug] Payload (Plain): ${JSON.stringify(payloadPlain, null, 2)}`);
+                await axios.post(url, payloadPlain);
+            } catch (retryError) {
+                console.error('❌ Telegram retry (plain text) also failed:', retryError.message);
+                if (retryError.response) {
+                    console.error('Telegram Retry Error Response Data:', JSON.stringify(retryError.response.data, null, 2));
+                }
+            }
+        }
     }
 }
 
