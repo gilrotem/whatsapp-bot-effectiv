@@ -160,6 +160,14 @@ app.post('/telegram_webhook', async (req, res) => {
     res.sendStatus(200);
 
     const update = req.body;
+    try {
+        const chatId = update?.message?.chat?.id;
+        const chatType = update?.message?.chat?.type;
+        console.log('[Telegram Webhook] chat.id:', chatId, 'chat.type:', chatType);
+        console.log('[Telegram Webhook] Full update:', JSON.stringify(update, null, 2));
+    } catch (e) {
+        console.log('[Telegram Webhook] Failed to stringify update:', e?.message || e);
+    }
     if (!update.message) return;
 
     const adminMsg = update.message.text;
