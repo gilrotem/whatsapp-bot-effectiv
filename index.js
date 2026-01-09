@@ -156,49 +156,69 @@ app.post('/webhook', (req, res) => {
 });
 
 // --- Telegram Webhook Logic ---
-app.post('/telegram_webhook', async (req, res) => {
-    res.sendStatus(200);
+app.post('/telegram_webhook', (req, res) => {
+    // Always ACK Telegram immediately.
+    res.status(200).send('OK');
 
-    const update = req.body;
-    try {
-        const chatId = update?.message?.chat?.id;
-        const chatType = update?.message?.chat?.type;
-        console.log('[Telegram Webhook] chat.id:', chatId, 'chat.type:', chatType);
-        console.log('[Telegram Webhook] Full update:', JSON.stringify(update, null, 2));
-    } catch (e) {
-        console.log('[Telegram Webhook] Failed to stringify update:', e?.message || e);
+    Promise.resolve()
+        .then(async () => {
+            const update = req.body;
+            try {
+                const chatId = update?.message?.chat?.id;
+                const chatType = update?.message?.chat?.type;
+                console.log('[Telegram Webhook] chat.id:', chatId, 'chat.type:', chatType);
+                console.log('[Telegram Webhook] Full update:', JSON.stringify(update, null, 2));
+            } catch (e) {
+                console.log('[Telegram Webhook] Failed to stringify update:', e?.message || e);
+            }
+
+            if (!update?.message) return;
+
+            const adminMsg = update.message.text;
+            const replyTo = update.message.reply_to_message;
+
+            if (!replyTo || !replyTo.text) return;
+
+            const phoneRegex = /📞 מספר:\s*(\d+)/;
+            const match = replyTo.text.match(phoneRegex);
+
+            if (!match || !match[1]) {
+                await sendToTelegram('❌ שגיאה: לא הצלחתי לזהות למי לענות.');
+                return;
+            }
+
+            const customerPhone = match[1];
+
+            if (adminMsg === '/close' || adminMsg === 'סיימנו') {
+                await updateSession(customerPhone, { current_state: STATES.WELCOME });
+                await sendTextMessage(PHONE_NUMBER_ID, customerPhone, "השיחה עם הנציג הסתיימה. חזרתי למצב בוט.");
+                await sendToTelegram(`✅ השיחה עם ${customerPhone} נסגרה.`);
+                return;
+            }
+
+            console.log(`📤 Admin replying to ${customerPhone}: ${adminMsg}`);
+            await sendTextMessage(PHONE_NUMBER_ID, customerPhone, adminMsg);
+        })
+        .catch((err) => {
+            // Never fail the webhook response; just log.
+            console.error('Error in telegram_webhook background handler:', err?.message || err);
+        });
+});
+
+// Ensure Telegram webhook never returns non-200 due to JSON parse/body-parser errors.
+app.use((err, req, res, next) => {
+    const isTelegramWebhook = req?.path === '/telegram_webhook';
+    const isBodyParseError =
+        err &&
+        (err.type === 'entity.parse.failed' || (err instanceof SyntaxError && 'body' in err));
+
+    if (isTelegramWebhook && isBodyParseError) {
+        console.error('[Telegram Webhook] Body parse error:', err?.message || err);
+        if (!res.headersSent) return res.status(200).send('OK');
+        return;
     }
-    if (!update.message) return;
 
-    const adminMsg = update.message.text;
-    const replyTo = update.message.reply_to_message;
-
-    if (!replyTo || !replyTo.text) return;
-
-    try {
-        const phoneRegex = /📞 מספר:\s*(\d+)/;
-        const match = replyTo.text.match(phoneRegex);
-
-        if (!match || !match[1]) {
-            await sendToTelegram('❌ שגיאה: לא הצלחתי לזהות למי לענות.');
-            return;
-        }
-
-        const customerPhone = match[1];
-
-        if (adminMsg === '/close' || adminMsg === 'סיימנו') {
-            await updateSession(customerPhone, { current_state: STATES.WELCOME });
-            await sendTextMessage(PHONE_NUMBER_ID, customerPhone, "השיחה עם הנציג הסתיימה. חזרתי למצב בוט.");
-            await sendToTelegram(`✅ השיחה עם ${customerPhone} נסגרה.`);
-            return;
-        }
-
-        console.log(`📤 Admin replying to ${customerPhone}: ${adminMsg}`);
-        await sendTextMessage(PHONE_NUMBER_ID, customerPhone, adminMsg);
-        
-    } catch (err) {
-        console.error('Error in telegram_webhook:', err.message);
-    }
+    next(err);
 });
 
 
