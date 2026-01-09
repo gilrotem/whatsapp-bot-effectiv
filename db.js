@@ -190,6 +190,59 @@ async function getSession(phoneNumber) {
     }
 }
 
+// Get session if exists (does NOT create)
+async function getSessionByPhone(phoneNumber) {
+    const phone = String(phoneNumber).trim();
+
+    if (isMock) {
+        const row = mockStorage.sessions[phone];
+        if (!row) return null;
+
+        return {
+            phone_number: row.phone_number,
+            current_state: row.current_state,
+            lead_data: {
+                intent: row.intent,
+                shed_size: row.shed_size,
+                flooring_status: row.flooring_status,
+                city: row.city
+            },
+            timestamps: {
+                created_at: row.created_at,
+                last_interaction: row.updated_at
+            }
+        };
+    }
+
+    const client = await pool.connect();
+    try {
+        const result = await client.query(
+            'SELECT * FROM sessions WHERE phone_number = $1',
+            [phone]
+        );
+
+        if (result.rows.length === 0) return null;
+
+        const row = result.rows[0];
+        return {
+            phone_number: row.phone_number,
+            current_state: row.current_state,
+            lead_data: {
+                intent: row.intent,
+                shed_size: row.shed_size,
+                flooring_status: row.flooring_status,
+                city: row.city
+            },
+            timestamps: {
+                created_at: row.created_at,
+                last_interaction: row.updated_at
+            }
+        };
+    } finally {
+        client.release();
+    }
+}
+
 // Update session
 async function updateSession(phoneNumber, updates) {
     if (isMock) {
@@ -243,6 +296,31 @@ async function updateSession(phoneNumber, updates) {
     }
 }
 
+async function listHandoffs() {
+    const handoffState = 'STATE_HUMAN_HANDOFF';
+
+    if (isMock) {
+        return Object.values(mockStorage.sessions)
+            .filter((s) => s.current_state === handoffState)
+            .map((s) => ({
+                phone_number: s.phone_number,
+                current_state: s.current_state,
+                updated_at: s.updated_at
+            }));
+    }
+
+    const client = await pool.connect();
+    try {
+        const result = await client.query(
+            'SELECT phone_number, current_state, updated_at FROM sessions WHERE current_state = $1',
+            [handoffState]
+        );
+        return result.rows;
+    } finally {
+        client.release();
+    }
+}
+
 // Save completed lead
 async function saveLead(session) {
     const client = await pool.connect();
@@ -283,7 +361,9 @@ module.exports = {
     pool,
     initDB,
     getSession,
+    getSessionByPhone,
     updateSession,
+    listHandoffs,
     saveLead,
     logMessage
 };

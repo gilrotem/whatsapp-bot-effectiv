@@ -4,7 +4,7 @@ const axios = require('axios');
 const crypto = require('crypto');
 require('dotenv').config();
 
-const { initDB, getSession, updateSession, saveLead, logMessage } = require('./db');
+const { initDB, getSession, getSessionByPhone, updateSession, listHandoffs, saveLead, logMessage } = require('./db');
 const { sendToTelegram, setTelegramWebhook } = require('./telegram_client'); 
 const botConfig = require('./botConfig.json');
 
@@ -27,6 +27,52 @@ app.get('/', (req, res) => {
 
 app.get('/health', (req, res) => {
     res.status(200).json({ status: 'ok', time: new Date().toISOString() });
+});
+
+// --- Admin routes (protected in production) ---
+function requireAdmin(req, res, next) {
+    const isProd = process.env.NODE_ENV === 'production';
+    const token = process.env.ADMIN_TOKEN;
+
+    if (isProd) {
+        if (!token) return res.status(403).json({ error: 'ADMIN_TOKEN is not set' });
+        const presented = req.get('x-admin-token') || req.query.token;
+        if (presented !== token) return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    next();
+}
+
+// 1. איפוס HANDOFF למספר ספציפי
+app.get('/admin/reset-handoff/:phone', requireAdmin, async (req, res) => {
+    try {
+        const phone = String(req.params.phone).trim();
+        await updateSession(phone, { current_state: STATES.WELCOME, intent: null });
+        res.send(`HANDOFF reset for ${phone}`);
+    } catch (err) {
+        res.status(500).send(err.message);
+    }
+});
+
+// 2. סטטוס של מספר ספציפי
+app.get('/admin/status/:phone', requireAdmin, async (req, res) => {
+    try {
+        const phone = String(req.params.phone).trim();
+        const session = await getSessionByPhone(phone);
+        res.json(session || { message: 'No session found' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// 3. רשימת כל השיחות הפתוחות ב-HANDOFF
+app.get('/admin/handoffs', requireAdmin, async (req, res) => {
+    try {
+        const rows = await listHandoffs();
+        res.json(rows);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 // --- State Constants ---
