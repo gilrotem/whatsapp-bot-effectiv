@@ -7,6 +7,7 @@ require('dotenv').config();
 const { initDB, getSession, getSessionByPhone, updateSession, listHandoffs, saveLead, logMessage } = require('./db');
 const { sendToTelegram, setTelegramWebhook } = require('./telegram_client'); 
 const botConfig = require('./botConfig.json');
+const apiRoutes = require('./routes/api');
 
 const app = express();
 
@@ -17,6 +18,16 @@ app.use(bodyParser.json({
     },
 }));
 app.set('trust proxy', 1);
+
+// CORS for dashboard
+const cors = require('cors');
+app.use(cors({
+    origin: true,  // Allow all origins (tighten in production)
+    credentials: true
+}));
+
+// API routes for CRM dashboard
+app.use('/api', apiRoutes);
 
 const { PORT: PORT_ENV, WHATSAPP_TOKEN, PHONE_NUMBER_ID, VERSION } = process.env;
 
