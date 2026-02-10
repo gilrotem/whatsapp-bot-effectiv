@@ -357,6 +357,156 @@ async function logMessage(phoneNumber, messageType, content, direction) {
     }
 }
 
+// ==========================
+// CRM API helpers
+// ==========================
+async function getRecentStats() {
+    try {
+        const totalLeadsResult = await pool.query('SELECT COUNT(*) as total FROM leads');
+        const activeSessionsResult = await pool.query('SELECT COUNT(*) as active FROM sessions WHERE current_state != \'STATE_COMPLETE\'');
+        const todayLeadsResult = await pool.query(
+            'SELECT COUNT(*) as today FROM leads WHERE DATE(created_at) = CURRENT_DATE'
+        );
+        const messagesResult = await pool.query(
+            'SELECT COUNT(*) as total FROM messages WHERE DATE(created_at) = CURRENT_DATE'
+        );
+
+        // Lead status breakdown
+        const statusBreakdownResult = await pool.query(`
+            SELECT status, COUNT(*) as count 
+            FROM leads 
+            GROUP BY status
+        `);
+
+        return {
+            totalLeads: parseInt(totalLeadsResult.rows[0].total),
+            activeSessions: parseInt(activeSessionsResult.rows[0].active),
+            todayLeads: parseInt(todayLeadsResult.rows[0].today),
+            todayMessages: parseInt(messagesResult.rows[0].total),
+            statusBreakdown: statusBreakdownResult.rows
+        };
+    } catch (error) {
+        console.error('Error getting recent stats:', error);
+        throw error;
+    }
+}
+
+async function getLeads(filters = {}, limit = 50, offset = 0) {
+    try {
+        let query = 'SELECT * FROM leads WHERE 1=1';
+        const params = [];
+        let paramCount = 0;
+
+        // Add filters
+        if (filters.status) {
+            paramCount++;
+            query += ` AND status = $${paramCount}`;
+            params.push(filters.status);
+        }
+        
+        if (filters.intent) {
+            paramCount++;
+            query += ` AND intent = $${paramCount}`;
+            params.push(filters.intent);
+        }
+        
+        if (filters.city) {
+            paramCount++;
+            query += ` AND city ILIKE $${paramCount}`;
+            params.push(`%${filters.city}%`);
+        }
+
+        query += ` ORDER BY created_at DESC LIMIT $${paramCount + 1} OFFSET $${paramCount + 2}`;
+        params.push(limit, offset);
+
+        const result = await pool.query(query, params);
+        return result.rows;
+    } catch (error) {
+        console.error('Error getting leads:', error);
+        throw error;
+    }
+}
+
+async function getLeadByPhone(phone) {
+    try {
+        const leadQuery = 'SELECT * FROM leads WHERE phone_number = $1';
+        const sessionQuery = 'SELECT * FROM sessions WHERE phone_number = $1';
+        
+        const [leadResult, sessionResult] = await Promise.all([
+            pool.query(leadQuery, [phone]),
+            pool.query(sessionQuery, [phone])
+        ]);
+
+        if (leadResult.rows.length === 0) {
+            return null;
+        }
+
+        return {
+            lead: leadResult.rows[0],
+            session: sessionResult.rows[0] || null
+        };
+    } catch (error) {
+        console.error('Error getting lead by phone:', error);
+        throw error;
+    }
+}
+
+async function updateLeadStatus(phone, status, notes = null) {
+    try {
+        let query = 'UPDATE leads SET status = $1';
+        const params = [status];
+        let paramCount = 1;
+
+        if (notes) {
+            paramCount++;
+            query += `, notes = $${paramCount}`;
+            params.push(notes);
+        }
+
+        query += `, updated_at = CURRENT_TIMESTAMP WHERE phone_number = $${paramCount + 1} RETURNING *`;
+        params.push(phone);
+
+        const result = await pool.query(query, params);
+        return result.rows[0] || null;
+    } catch (error) {
+        console.error('Error updating lead status:', error);
+        throw error;
+    }
+}
+
+async function getMessagesByPhone(phone, limit = 50, offset = 0) {
+    try {
+        const query = `
+            SELECT * FROM messages 
+            WHERE phone_number = $1 
+            ORDER BY created_at DESC 
+            LIMIT $2 OFFSET $3
+        `;
+        
+        const result = await pool.query(query, [phone, limit, offset]);
+        return result.rows;
+    } catch (error) {
+        console.error('Error getting messages by phone:', error);
+        throw error;
+    }
+}
+
+async function getAllSessions(limit = 50, offset = 0) {
+    try {
+        const query = `
+            SELECT * FROM sessions 
+            ORDER BY phone_number 
+            LIMIT $1 OFFSET $2
+        `;
+        
+        const result = await pool.query(query, [limit, offset]);
+        return result.rows;
+    } catch (error) {
+        console.error('Error getting all sessions:', error);
+        throw error;
+    }
+}
+
 module.exports = {
     pool,
     initDB,
@@ -365,5 +515,11 @@ module.exports = {
     updateSession,
     listHandoffs,
     saveLead,
-    logMessage
+    logMessage,
+    getRecentStats,
+    getLeads,
+    getLeadByPhone,
+    updateLeadStatus,
+    getMessagesByPhone,
+    getAllSessions
 };

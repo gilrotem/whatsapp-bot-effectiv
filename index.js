@@ -19,10 +19,10 @@ app.use(bodyParser.json({
 }));
 app.set('trust proxy', 1);
 
-// CORS for dashboard
+// CORS configuration for dashboard
 const cors = require('cors');
 app.use(cors({
-    origin: true,  // Allow all origins (tighten in production)
+    origin: process.env.DASHBOARD_URL || '*', // In production, set specific URL
     credentials: true
 }));
 
@@ -370,6 +370,22 @@ async function sendTextMessage(phoneNumberId, to, text) {
     }
 }
 
+async function sendWhatsAppMessage(phone, message, messageType = 'text') {
+    if (messageType !== 'text') {
+        console.error('Unsupported message type:', messageType);
+        return false;
+    }
+
+    const phoneNumberId = process.env.PHONE_NUMBER_ID || PHONE_NUMBER_ID;
+    if (!phoneNumberId) {
+        console.error('PHONE_NUMBER_ID is not set');
+        return false;
+    }
+
+    await sendTextMessage(phoneNumberId, phone, message);
+    return true;
+}
+
 async function sendInteractiveMessage(phoneNumberId, to, bodyText, buttons) {
     try {
         await axios({
@@ -410,3 +426,7 @@ async function startServer() {
 }
 
 startServer();
+
+module.exports = {
+    sendWhatsAppMessage
+};
