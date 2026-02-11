@@ -479,7 +479,7 @@ async function getMessagesByPhone(phone, limit = 50, offset = 0) {
         const query = `
             SELECT * FROM messages 
             WHERE phone_number = $1 
-            ORDER BY created_at DESC 
+            ORDER BY created_at ASC 
             LIMIT $2 OFFSET $3
         `;
         

@@ -131,6 +131,12 @@ router.post("/send-message", async (req, res) => {
 
     try {
       await sendWhatsAppMessage(phone, msg, message_type);
+
+      // Log outgoing message
+      const { logMessage } = require("../db");
+      await logMessage(phone, message_type, msg, "outgoing");
+      console.log("[LOG] Outgoing message saved for:", phone);
+
       res.json({ success: true, message: "Message sent successfully" });
     } catch (waError) {
       console.error(
