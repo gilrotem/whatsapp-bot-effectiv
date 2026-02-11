@@ -128,12 +128,20 @@ router.post("/send-message", async (req, res) => {
     }
 
     const { sendWhatsAppMessage } = require("../index");
-    const success = await sendWhatsAppMessage(phone, msg, message_type);
 
-    if (success) {
+    try {
+      await sendWhatsAppMessage(phone, msg, message_type);
       res.json({ success: true, message: "Message sent successfully" });
-    } else {
-      res.status(500).json({ error: "Failed to send message" });
+    } catch (waError) {
+      console.error(
+        "[WA] send-message failed:",
+        waError.response?.status,
+        waError.response?.data || waError.message,
+      );
+      return res.status(502).json({
+        error: "whatsapp_send_failed",
+        details: waError.response?.data || waError.message,
+      });
     }
   } catch (error) {
     console.error("Error sending message:", error);
