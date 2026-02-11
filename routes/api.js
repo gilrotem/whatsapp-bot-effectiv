@@ -12,10 +12,20 @@ const { sendWhatsAppMessage } = require('../index');
 
 const router = express.Router();
 
+console.log('API_TOKEN environment variable:', process.env.API_TOKEN ? 'EXISTS' : 'MISSING');
+
 // Middleware לבדיקת API token
 const authenticateAPI = (req, res, next) => {
   const token = req.headers['authorization']?.replace('Bearer ', '');
-  if (!token || token !== process.env.API_TOKEN) {
+  const expectedToken = process.env.API_TOKEN;
+  
+  console.log('=== AUTH DEBUG ===');
+  console.log('Received token:', token);
+  console.log('Expected token exists:', !!expectedToken);
+  console.log('Expected token length:', expectedToken?.length);
+  console.log('Match result:', token === expectedToken);
+  
+  if (!token || token !== expectedToken) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
   next();
