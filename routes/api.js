@@ -19,11 +19,12 @@ const authenticateAPI = (req, res, next) => {
   const token = req.headers['authorization']?.replace('Bearer ', '');
   const expectedToken = process.env.API_TOKEN;
   
-  console.log('=== AUTH DEBUG ===');
-  console.log('Received token:', token);
-  console.log('Expected token exists:', !!expectedToken);
-  console.log('Expected token length:', expectedToken?.length);
-  console.log('Match result:', token === expectedToken);
+  console.error('=== AUTH DEBUG START ===');
+  console.error('Received token:', token);
+  console.error('Expected token exists:', !!expectedToken);
+  console.error('Expected token value:', expectedToken);
+  console.error('Match result:', token === expectedToken);
+  console.error('=== AUTH DEBUG END ===');
   
   if (!token || token !== expectedToken) {
     return res.status(401).json({ error: 'Unauthorized' });
