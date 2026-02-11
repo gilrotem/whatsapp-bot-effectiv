@@ -8,7 +8,6 @@ const {
   getMessagesByPhone,
   getAllSessions,
 } = require("../db");
-const { sendWhatsAppMessage } = require("../index");
 
 const router = express.Router();
 
@@ -128,6 +127,7 @@ router.post("/send-message", async (req, res) => {
       return res.status(400).json({ error: "Phone and message are required" });
     }
 
+    const { sendWhatsAppMessage } = require("../index");
     const success = await sendWhatsAppMessage(phone, msg, message_type);
 
     if (success) {
