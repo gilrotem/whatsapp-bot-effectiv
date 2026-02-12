@@ -117,13 +117,27 @@ async function initDB() {
             );
         `);
 
-    // Add unique constraint on phone_number
+    // Clean up any duplicate leads before adding unique constraint
+    // Keep only the most recent lead for each phone number
     await client.query(`
-      DO $$ BEGIN
-        ALTER TABLE leads ADD CONSTRAINT leads_phone_unique UNIQUE (phone_number);
-      EXCEPTION WHEN duplicate_object THEN NULL;
-      END $$;
+      DELETE FROM leads a USING leads b
+      WHERE a.id < b.id AND a.phone_number = b.phone_number
     `);
+
+    // Add unique constraint on phone_number (safe - will not error if already exists)
+    try {
+      await client.query(
+        `ALTER TABLE leads ADD CONSTRAINT leads_phone_unique UNIQUE (phone_number)`
+      );
+      console.log('✅ Added UNIQUE constraint on leads.phone_number');
+    } catch (constraintError) {
+      if (constraintError.code === '42P07' || constraintError.message.includes('already exists')) {
+        console.log('ℹ️  UNIQUE constraint on leads.phone_number already exists');
+      } else {
+        console.error('⚠️  Failed to add UNIQUE constraint:', constraintError.message);
+        throw constraintError;
+      }
+    }
 
     // Add updated_at column
     await client.query(`
@@ -383,6 +397,16 @@ async function saveLead(session) {
       ],
     );
     console.log(`✅ Lead saved for ${session.phone_number}`);
+  } catch (error) {
+    console.error(`❌ ERROR saving lead for ${session.phone_number}:`, error.message);
+    console.error('Lead data:', {
+      phone: session.phone_number,
+      intent: session.lead_data.intent,
+      shed_size: session.lead_data.shed_size,
+      flooring_status: session.lead_data.flooring_status,
+      city: session.lead_data.city,
+    });
+    throw error;
   } finally {
     client.release();
   }
