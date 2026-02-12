@@ -1,7 +1,7 @@
 {
   "name": "whatsapp-bot-meta-api",
-  "version": "1.0.0",
-  "description": "WhatsApp Bot using direct Meta Cloud API",
+  "version": "1.0.1",
+  "description": "WhatsApp Bot using direct Meta Cloud API with Flow Automation",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
