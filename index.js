@@ -223,10 +223,16 @@ app.post("/webhook", (req, res) => {
 
       // --- FIX BUG 1: Skip bot for completed leads ---
       const existingLead = await getLeadByPhone(from);
-      
+
       // If lead completed questionnaire, don't restart
-      if (existingLead && session.current_state === STATES.SUMMARY_HANDOFF && !isReset) {
-        console.log(`[BOT] Lead ${from} already completed. Skipping questionnaire.`);
+      if (
+        existingLead &&
+        session.current_state === STATES.SUMMARY_HANDOFF &&
+        !isReset
+      ) {
+        console.log(
+          `[BOT] Lead ${from} already completed. Skipping questionnaire.`,
+        );
         return;
       }
 
