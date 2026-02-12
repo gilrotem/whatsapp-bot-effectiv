@@ -117,6 +117,22 @@ async function initDB() {
             );
         `);
 
+    // Add unique constraint on phone_number
+    await client.query(`
+      DO $$ BEGIN
+        ALTER TABLE leads ADD CONSTRAINT leads_phone_unique UNIQUE (phone_number);
+      EXCEPTION WHEN duplicate_object THEN NULL;
+      END $$;
+    `);
+
+    // Add updated_at column
+    await client.query(`
+      DO $$ BEGIN
+        ALTER TABLE leads ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+      EXCEPTION WHEN duplicate_column THEN NULL;
+      END $$;
+    `);
+
     await client.query(`
             CREATE TABLE IF NOT EXISTS messages (
                 id SERIAL PRIMARY KEY,
@@ -135,11 +151,11 @@ async function initDB() {
 
     // Safe migration: add media columns if they don't exist yet
     const migrationCols = [
-      { name: 'media_url', type: 'TEXT' },
-      { name: 'media_mime', type: 'TEXT' },
-      { name: 'media_caption', type: 'TEXT' },
-      { name: 'wa_message_id', type: 'TEXT' },
-      { name: 'wa_media_id', type: 'TEXT' },
+      { name: "media_url", type: "TEXT" },
+      { name: "media_mime", type: "TEXT" },
+      { name: "media_caption", type: "TEXT" },
+      { name: "wa_message_id", type: "TEXT" },
+      { name: "wa_media_id", type: "TEXT" },
     ];
     for (const col of migrationCols) {
       await client.query(`
@@ -343,13 +359,20 @@ async function listHandoffs() {
   }
 }
 
-// Save completed lead
+// Save completed lead (UPSERT to prevent duplicates)
 async function saveLead(session) {
   const client = await pool.connect();
   try {
     await client.query(
       `INSERT INTO leads (phone_number, intent, shed_size, flooring_status, city, status)
-             VALUES ($1, $2, $3, $4, $5, $6)`,
+             VALUES ($1, $2, $3, $4, $5, $6)
+             ON CONFLICT (phone_number) DO UPDATE SET
+               intent = EXCLUDED.intent,
+               shed_size = EXCLUDED.shed_size,
+               flooring_status = EXCLUDED.flooring_status,
+               city = EXCLUDED.city,
+               status = EXCLUDED.status,
+               updated_at = CURRENT_TIMESTAMP`,
       [
         session.phone_number,
         session.lead_data.intent,
@@ -366,7 +389,13 @@ async function saveLead(session) {
 }
 
 // Log message (supports optional media fields)
-async function logMessage(phoneNumber, messageType, content, direction, extra = {}) {
+async function logMessage(
+  phoneNumber,
+  messageType,
+  content,
+  direction,
+  extra = {},
+) {
   const client = await pool.connect();
   try {
     await client.query(

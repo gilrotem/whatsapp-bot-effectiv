@@ -192,10 +192,7 @@ router.post("/send-media", upload.single("file"), async (req, res) => {
       return res.status(400).json({ error: "phone and file are required" });
     }
 
-    const {
-      uploadMediaToWhatsApp,
-      sendMediaMessage,
-    } = require("../index");
+    const { uploadMediaToWhatsApp, sendMediaMessage } = require("../index");
     const { logMessage } = require("../db");
 
     const mimeType = file.mimetype;
@@ -213,16 +210,25 @@ router.post("/send-media", upload.single("file"), async (req, res) => {
     await sendMediaMessage(phone, mediaType, waMediaId, caption || null);
 
     // c) Log to DB as outgoing
-    await logMessage(phone, mediaType, caption || `[${mediaType}]`, "outgoing", {
-      wa_media_id: waMediaId,
-      media_mime: mimeType,
-      media_caption: caption || null,
-    });
+    await logMessage(
+      phone,
+      mediaType,
+      caption || `[${mediaType}]`,
+      "outgoing",
+      {
+        wa_media_id: waMediaId,
+        media_mime: mimeType,
+        media_caption: caption || null,
+      },
+    );
 
     // d) Return success
     res.json({ success: true, wa_media_id: waMediaId });
   } catch (error) {
-    console.error("Error sending media:", error.response?.data || error.message);
+    console.error(
+      "Error sending media:",
+      error.response?.data || error.message,
+    );
     res.status(502).json({
       error: "media_send_failed",
       details: error.response?.data || error.message,
@@ -234,7 +240,10 @@ router.post("/send-media", upload.single("file"), async (req, res) => {
 router.get("/media/:waMediaId", async (req, res) => {
   try {
     const { waMediaId } = req.params;
-    const { getMediaDownloadUrl, streamMediaFromWhatsApp } = require("../index");
+    const {
+      getMediaDownloadUrl,
+      streamMediaFromWhatsApp,
+    } = require("../index");
 
     // Fetch the temporary download URL
     const { url, mime_type } = await getMediaDownloadUrl(waMediaId);
@@ -244,7 +253,10 @@ router.get("/media/:waMediaId", async (req, res) => {
     res.set("Content-Type", mime_type || "application/octet-stream");
     upstream.data.pipe(res);
   } catch (error) {
-    console.error("Error proxying media:", error.response?.data || error.message);
+    console.error(
+      "Error proxying media:",
+      error.response?.data || error.message,
+    );
     res.status(502).json({
       error: "media_proxy_failed",
       details: error.response?.data || error.message,

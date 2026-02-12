@@ -12,6 +12,7 @@ const {
   listHandoffs,
   saveLead,
   logMessage,
+  getLeadByPhone,
 } = require("./db");
 const { sendToTelegram, setTelegramWebhook } = require("./telegram_client");
 const botConfig = require("./botConfig.json");
@@ -181,7 +182,10 @@ app.post("/webhook", (req, res) => {
             downloadUrl = mediaResp.data?.url || null;
             mimeType = mimeType || mediaResp.data?.mime_type || null;
           } catch (mediaErr) {
-            console.error("[WA] Failed to fetch media URL:", mediaErr.response?.data || mediaErr.message);
+            console.error(
+              "[WA] Failed to fetch media URL:",
+              mediaErr.response?.data || mediaErr.message,
+            );
           }
         }
 
@@ -217,9 +221,18 @@ app.post("/webhook", (req, res) => {
         msgContent &&
         (String(msgContent).toLowerCase() === "reset" || msgContent === "התחל");
 
+      // --- FIX BUG 1: Skip bot for completed leads ---
+      const existingLead = await getLeadByPhone(from);
+      
+      // If lead completed questionnaire, don't restart
+      if (existingLead && session.current_state === STATES.SUMMARY_HANDOFF && !isReset) {
+        console.log(`[BOT] Lead ${from} already completed. Skipping questionnaire.`);
+        return;
+      }
+
       // שתיקה במצב נציג אנושי
       if (session.current_state === STATES.HUMAN_HANDOFF && !isReset) {
-        console.log(`User ${from} is in HANDOFF mode. Bot is silent.`);
+        console.log(`[BOT] Lead ${from} in human handoff. Skipping bot.`);
         return;
       }
 
@@ -567,7 +580,10 @@ async function sendMediaMessage(phone, mediaType, waMediaId, caption) {
   }
 
   const mediaPayload = { id: waMediaId };
-  if (caption && (mediaType === "image" || mediaType === "video" || mediaType === "document")) {
+  if (
+    caption &&
+    (mediaType === "image" || mediaType === "video" || mediaType === "document")
+  ) {
     mediaPayload.caption = caption;
   }
 
