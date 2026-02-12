@@ -124,9 +124,31 @@ async function initDB() {
                 message_type VARCHAR(20),
                 message_content TEXT,
                 direction VARCHAR(10),
+                media_url TEXT,
+                media_mime TEXT,
+                media_caption TEXT,
+                wa_message_id TEXT,
+                wa_media_id TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         `);
+
+    // Safe migration: add media columns if they don't exist yet
+    const migrationCols = [
+      { name: 'media_url', type: 'TEXT' },
+      { name: 'media_mime', type: 'TEXT' },
+      { name: 'media_caption', type: 'TEXT' },
+      { name: 'wa_message_id', type: 'TEXT' },
+      { name: 'wa_media_id', type: 'TEXT' },
+    ];
+    for (const col of migrationCols) {
+      await client.query(`
+        DO $$ BEGIN
+          ALTER TABLE messages ADD COLUMN ${col.name} ${col.type};
+        EXCEPTION WHEN duplicate_column THEN NULL;
+        END $$;
+      `);
+    }
 
     console.log("✅ Database tables initialized successfully");
   } catch (error) {
@@ -343,14 +365,25 @@ async function saveLead(session) {
   }
 }
 
-// Log message
-async function logMessage(phoneNumber, messageType, content, direction) {
+// Log message (supports optional media fields)
+async function logMessage(phoneNumber, messageType, content, direction, extra = {}) {
   const client = await pool.connect();
   try {
     await client.query(
-      `INSERT INTO messages (phone_number, message_type, message_content, direction)
-             VALUES ($1, $2, $3, $4)`,
-      [phoneNumber, messageType, content, direction],
+      `INSERT INTO messages (phone_number, message_type, message_content, direction,
+             media_url, media_mime, media_caption, wa_message_id, wa_media_id)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [
+        phoneNumber,
+        messageType,
+        content,
+        direction,
+        extra.media_url || null,
+        extra.media_mime || null,
+        extra.media_caption || null,
+        extra.wa_message_id || null,
+        extra.wa_media_id || null,
+      ],
     );
   } finally {
     client.release();
@@ -495,7 +528,10 @@ async function updateLeadStatus(phone, status, notes = null) {
 async function getMessagesByPhone(phone, limit = 50, offset = 0) {
   try {
     const query = `
-            SELECT * FROM messages 
+            SELECT id, phone_number, message_type, message_content, direction,
+                   media_url, media_mime, media_caption, wa_message_id, wa_media_id,
+                   created_at
+            FROM messages 
             WHERE phone_number = $1 
             ORDER BY created_at ASC 
             LIMIT $2 OFFSET $3

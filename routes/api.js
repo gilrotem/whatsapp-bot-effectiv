@@ -1,5 +1,6 @@
 // routes/api.js
 const express = require("express");
+const multer = require("multer");
 const {
   getRecentStats,
   getLeads,
@@ -164,6 +165,90 @@ router.get("/sessions", async (req, res) => {
   } catch (error) {
     console.error("Error fetching sessions:", error);
     res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// --- Multer setup for in-memory file upload ---
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 16 * 1024 * 1024 }, // 16 MB max
+});
+
+// Helper: map MIME type to WhatsApp media type
+function mimeToMediaType(mime) {
+  if (mime.startsWith("image/")) return "image";
+  if (mime.startsWith("video/")) return "video";
+  if (mime.startsWith("audio/")) return "audio";
+  return "document";
+}
+
+// POST /api/send-media - Send media message from CRM dashboard
+router.post("/send-media", upload.single("file"), async (req, res) => {
+  try {
+    const { phone, caption } = req.body;
+    const file = req.file;
+
+    if (!phone || !file) {
+      return res.status(400).json({ error: "phone and file are required" });
+    }
+
+    const {
+      uploadMediaToWhatsApp,
+      sendMediaMessage,
+    } = require("../index");
+    const { logMessage } = require("../db");
+
+    const mimeType = file.mimetype;
+    const mediaType = mimeToMediaType(mimeType);
+
+    // a) Upload file to WhatsApp => wa_media_id
+    const uploadResult = await uploadMediaToWhatsApp(
+      file.buffer,
+      mimeType,
+      file.originalname,
+    );
+    const waMediaId = uploadResult.id;
+
+    // b) Send media message to the phone
+    await sendMediaMessage(phone, mediaType, waMediaId, caption || null);
+
+    // c) Log to DB as outgoing
+    await logMessage(phone, mediaType, caption || `[${mediaType}]`, "outgoing", {
+      wa_media_id: waMediaId,
+      media_mime: mimeType,
+      media_caption: caption || null,
+    });
+
+    // d) Return success
+    res.json({ success: true, wa_media_id: waMediaId });
+  } catch (error) {
+    console.error("Error sending media:", error.response?.data || error.message);
+    res.status(502).json({
+      error: "media_send_failed",
+      details: error.response?.data || error.message,
+    });
+  }
+});
+
+// GET /api/media/:waMediaId - Proxy to stream WhatsApp media to CRM
+router.get("/media/:waMediaId", async (req, res) => {
+  try {
+    const { waMediaId } = req.params;
+    const { getMediaDownloadUrl, streamMediaFromWhatsApp } = require("../index");
+
+    // Fetch the temporary download URL
+    const { url, mime_type } = await getMediaDownloadUrl(waMediaId);
+
+    // Stream the file back to the client
+    const upstream = await streamMediaFromWhatsApp(url);
+    res.set("Content-Type", mime_type || "application/octet-stream");
+    upstream.data.pipe(res);
+  } catch (error) {
+    console.error("Error proxying media:", error.response?.data || error.message);
+    res.status(502).json({
+      error: "media_proxy_failed",
+      details: error.response?.data || error.message,
+    });
   }
 });
 

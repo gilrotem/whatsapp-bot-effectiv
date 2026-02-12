@@ -154,14 +154,54 @@ app.post("/webhook", (req, res) => {
     try {
       const session = await getSession(from);
 
-      const msgContent = message.text
-        ? message.text.body
-        : message.interactive
-          ? message.interactive.button_reply?.title || "button"
-          : "media";
+      // --- Media handling ---
+      const MEDIA_TYPES = ["image", "video", "document", "audio", "sticker"];
+      const isMedia = MEDIA_TYPES.includes(message.type);
+
+      let msgContent;
+      let mediaExtra = {};
+
+      if (isMedia) {
+        const mediaObj = message[message.type]; // e.g. message.image
+        const waMediaId = mediaObj?.id;
+        const caption = mediaObj?.caption || null;
+        const waMsgId = message.id || null;
+        msgContent = caption || `[${message.type}]`;
+
+        let downloadUrl = null;
+        let mimeType = mediaObj?.mime_type || null;
+
+        if (waMediaId) {
+          try {
+            // Fetch temporary download URL from Graph API
+            const mediaResp = await axios.get(
+              `https://graph.facebook.com/${VERSION || "v18.0"}/${waMediaId}`,
+              { headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` } },
+            );
+            downloadUrl = mediaResp.data?.url || null;
+            mimeType = mimeType || mediaResp.data?.mime_type || null;
+          } catch (mediaErr) {
+            console.error("[WA] Failed to fetch media URL:", mediaErr.response?.data || mediaErr.message);
+          }
+        }
+
+        mediaExtra = {
+          media_url: downloadUrl,
+          media_mime: mimeType,
+          media_caption: caption,
+          wa_message_id: waMsgId,
+          wa_media_id: waMediaId,
+        };
+      } else if (message.text) {
+        msgContent = message.text.body;
+      } else if (message.interactive) {
+        msgContent = message.interactive.button_reply?.title || "button";
+      } else {
+        msgContent = "unknown";
+      }
 
       // שמירת לוג
-      await logMessage(from, message.type, msgContent, "incoming");
+      await logMessage(from, message.type, msgContent, "incoming", mediaExtra);
 
       // שליחה לטלגרם
       const telegramMsg = `📩 *הודעה חדשה*
@@ -494,6 +534,79 @@ async function sendWhatsAppMessage(phone, message, messageType = "text") {
   return true;
 }
 
+// Upload media to WhatsApp and return { id } (wa_media_id)
+async function uploadMediaToWhatsApp(fileBuffer, mimeType, filename) {
+  const phoneNumberId = process.env.PHONE_NUMBER_ID || PHONE_NUMBER_ID;
+  const FormData = require("form-data");
+  const form = new FormData();
+  form.append("messaging_product", "whatsapp");
+  form.append("file", fileBuffer, { filename, contentType: mimeType });
+  form.append("type", mimeType);
+
+  const resp = await axios.post(
+    `https://graph.facebook.com/${VERSION || "v18.0"}/${phoneNumberId}/media`,
+    form,
+    {
+      headers: {
+        Authorization: `Bearer ${WHATSAPP_TOKEN}`,
+        ...form.getHeaders(),
+      },
+      maxContentLength: Infinity,
+      maxBodyLength: Infinity,
+    },
+  );
+  return resp.data; // { id: "wa_media_id" }
+}
+
+// Send a media message (image/video/document/audio) via wa_media_id
+async function sendMediaMessage(phone, mediaType, waMediaId, caption) {
+  const phoneNumberId = process.env.PHONE_NUMBER_ID || PHONE_NUMBER_ID;
+  const supportedTypes = ["image", "video", "document", "audio"];
+  if (!supportedTypes.includes(mediaType)) {
+    throw new Error(`Unsupported media type: ${mediaType}`);
+  }
+
+  const mediaPayload = { id: waMediaId };
+  if (caption && (mediaType === "image" || mediaType === "video" || mediaType === "document")) {
+    mediaPayload.caption = caption;
+  }
+
+  const resp = await axios.post(
+    `https://graph.facebook.com/${VERSION || "v18.0"}/${phoneNumberId}/messages`,
+    {
+      messaging_product: "whatsapp",
+      to: phone,
+      type: mediaType,
+      [mediaType]: mediaPayload,
+    },
+    {
+      headers: {
+        Authorization: `Bearer ${WHATSAPP_TOKEN}`,
+        "Content-Type": "application/json",
+      },
+    },
+  );
+  return resp.data;
+}
+
+// Fetch media download URL from WhatsApp by wa_media_id
+async function getMediaDownloadUrl(waMediaId) {
+  const resp = await axios.get(
+    `https://graph.facebook.com/${VERSION || "v18.0"}/${waMediaId}`,
+    { headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` } },
+  );
+  return { url: resp.data.url, mime_type: resp.data.mime_type };
+}
+
+// Stream media bytes from WhatsApp CDN
+async function streamMediaFromWhatsApp(downloadUrl) {
+  const resp = await axios.get(downloadUrl, {
+    headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` },
+    responseType: "stream",
+  });
+  return resp;
+}
+
 async function sendInteractiveMessage(phoneNumberId, to, bodyText, buttons) {
   try {
     await axios({
@@ -541,4 +654,8 @@ startServer();
 
 module.exports = {
   sendWhatsAppMessage,
+  uploadMediaToWhatsApp,
+  sendMediaMessage,
+  getMediaDownloadUrl,
+  streamMediaFromWhatsApp,
 };
