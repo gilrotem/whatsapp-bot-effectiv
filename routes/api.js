@@ -14,6 +14,14 @@ const router = express.Router();
 
 console.log('API_TOKEN environment variable:', process.env.API_TOKEN ? 'EXISTS' : 'MISSING');
 
+// Middleware to log API requests
+router.use((req, res, next) => {
+  process.stdout.write('=== API REQUEST ===\n');
+  process.stdout.write(`API Method: ${req.method}\n`);
+  process.stdout.write(`API Path: ${req.path}\n`);
+  next();
+});
+
 // Middleware לבדיקת API token
 const authenticateAPI = (req, res, next) => {
   const token = req.headers['authorization']?.replace('Bearer ', '');

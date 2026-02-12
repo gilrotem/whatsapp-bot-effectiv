@@ -26,6 +26,15 @@ app.use(cors({
     credentials: true
 }));
 
+// Middleware to log all incoming requests
+app.use((req, res, next) => {
+    process.stdout.write(`=== INCOMING REQUEST ===\n`);
+    process.stdout.write(`Method: ${req.method}\n`);
+    process.stdout.write(`URL: ${req.url}\n`);
+    process.stdout.write(`Headers: ${JSON.stringify(req.headers)}\n`);
+    next();
+});
+
 // API routes for CRM dashboard
 app.use('/api', apiRoutes);
 
@@ -416,6 +425,10 @@ async function startServer() {
     const port = Number(process.env.PORT) || 3000;
 
     app.listen(port, '0.0.0.0', () => {
+        process.stdout.write('=== SERVER STARTUP ===\n');
+        process.stdout.write(`🚀 WhatsApp Bot Server STARTED on port: ${port}\n`);
+        process.stdout.write(`🌐 Environment: ${process.env.NODE_ENV || 'development'}\n`);
+        process.stdout.write(`📱 API_TOKEN exists: ${!!process.env.API_TOKEN}\n`);
         console.log(`Server is running strictly on port: ${port}`);
         if (process.env.PUBLIC_URL) {
             setTelegramWebhook(process.env.PUBLIC_URL);
