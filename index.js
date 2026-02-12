@@ -15,6 +15,7 @@ const {
   getLeadByPhone,
 } = require("./db");
 const { sendToTelegram, setTelegramWebhook } = require("./telegram_client");
+const { startFlowEngine, initFlowExecutionsTable } = require("./flow_engine");
 const botConfig = require("./botConfig.json");
 const apiRoutes = require("./routes/api");
 
@@ -677,7 +678,14 @@ async function startServer() {
       setTelegramWebhook(process.env.PUBLIC_URL);
     }
     initDB()
-      .then(() => console.log(`✅ Database connected`))
+      .then(async () => {
+        console.log(`✅ Database connected`);
+        // Initialize flow executions table
+        await initFlowExecutionsTable();
+        // Start the flow automation engine
+        const { updateLeadStatus } = require('./db');
+        startFlowEngine(sendWhatsAppMessage, updateLeadStatus);
+      })
       .catch((dbError) => console.error("⚠️ DB Error:", dbError.message));
   });
 }

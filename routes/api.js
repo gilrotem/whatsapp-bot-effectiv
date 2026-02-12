@@ -1,6 +1,7 @@
 // routes/api.js
 const express = require("express");
 const multer = require("multer");
+const { Pool } = require("pg");
 const {
   getRecentStats,
   getLeads,
@@ -9,6 +10,17 @@ const {
   getMessagesByPhone,
   getAllSessions,
 } = require("../db");
+
+// PostgreSQL connection for flow_executions queries
+const isProduction = process.env.NODE_ENV === "production";
+let db;
+if (process.env.DATABASE_URL) {
+  const poolConfig = {
+    connectionString: process.env.DATABASE_URL,
+    ssl: isProduction ? { rejectUnauthorized: false } : false,
+  };
+  db = new Pool(poolConfig);
+}
 
 const router = express.Router();
 
@@ -100,6 +112,10 @@ router.put("/leads/:phone", async (req, res) => {
     if (!updated) {
       return res.status(404).json({ error: "Lead not found" });
     }
+
+    // Trigger automation flows if status changed
+    const { triggerFlowsOnStatusChange } = require('../flow_engine');
+    await triggerFlowsOnStatusChange(phone, status);
 
     res.json({ success: true, updated });
   } catch (error) {
@@ -275,6 +291,120 @@ router.get("/media/:waMediaId", async (req, res) => {
 // Health check endpoint
 router.get("/health", (req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
+});
+
+// ===== FLOW AUTOMATION ENDPOINTS =====
+
+// GET /api/flows/:flowId/executions - Get executions for a specific flow
+router.get("/flows/:flowId/executions", async (req, res) => {
+  try {
+    const { flowId } = req.params;
+    const { limit = 50 } = req.query;
+    
+    const { rows } = await db.query(
+      `SELECT * FROM flow_executions 
+       WHERE flow_id = $1 
+       ORDER BY created_at DESC 
+       LIMIT $2`,
+      [flowId, parseInt(limit)]
+    );
+    
+    res.json(rows);
+  } catch (error) {
+    console.error("Error fetching flow executions:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// GET /api/leads/:phone/executions - Get active flows for a lead
+router.get("/leads/:phone/executions", async (req, res) => {
+  try {
+    const { phone } = req.params;
+    
+    const { rows } = await db.query(
+      `SELECT * FROM flow_executions 
+       WHERE lead_phone = $1 AND status = 'active'
+       ORDER BY created_at DESC`,
+      [phone]
+    );
+    
+    res.json(rows);
+  } catch (error) {
+    console.error("Error fetching lead executions:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// POST /api/flows/executions/:executionId/pause - Pause a flow execution
+router.post("/flows/executions/:executionId/pause", async (req, res) => {
+  try {
+    const { executionId } = req.params;
+    
+    const { rows } = await db.query(
+      `UPDATE flow_executions 
+       SET status = 'paused', updated_at = NOW() 
+       WHERE id = $1 
+       RETURNING *`,
+      [parseInt(executionId)]
+    );
+    
+    if (rows.length === 0) {
+      return res.status(404).json({ error: "Execution not found" });
+    }
+    
+    res.json({ success: true, execution: rows[0] });
+  } catch (error) {
+    console.error("Error pausing execution:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// POST /api/flows/executions/:executionId/resume - Resume a paused flow execution
+router.post("/flows/executions/:executionId/resume", async (req, res) => {
+  try {
+    const { executionId } = req.params;
+    
+    const { rows } = await db.query(
+      `UPDATE flow_executions 
+       SET status = 'active', updated_at = NOW() 
+       WHERE id = $1 
+       RETURNING *`,
+      [parseInt(executionId)]
+    );
+    
+    if (rows.length === 0) {
+      return res.status(404).json({ error: "Execution not found" });
+    }
+    
+    res.json({ success: true, execution: rows[0] });
+  } catch (error) {
+    console.error("Error resuming execution:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// DELETE /api/flows/executions/:executionId - Cancel a flow execution
+router.delete("/flows/executions/:executionId", async (req, res) => {
+  try {
+    const { executionId } = req.params;
+    
+    const { rows } = await db.query(
+      `UPDATE flow_executions 
+       SET status = 'completed', updated_at = NOW() 
+       WHERE id = $1 
+       RETURNING *`,
+      [parseInt(executionId)]
+    );
+    
+    if (rows.length === 0) {
+      return res.status(404).json({ error: "Execution not found" });
+    }
+    
+    res.json({ success: true, execution: rows[0] });
+  } catch (error) {
+    console.error("Error canceling execution:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
 });
 
 module.exports = router;
