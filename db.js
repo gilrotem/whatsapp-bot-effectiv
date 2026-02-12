@@ -127,14 +127,22 @@ async function initDB() {
     // Add unique constraint on phone_number (safe - will not error if already exists)
     try {
       await client.query(
-        `ALTER TABLE leads ADD CONSTRAINT leads_phone_unique UNIQUE (phone_number)`
+        `ALTER TABLE leads ADD CONSTRAINT leads_phone_unique UNIQUE (phone_number)`,
       );
-      console.log('✅ Added UNIQUE constraint on leads.phone_number');
+      console.log("✅ Added UNIQUE constraint on leads.phone_number");
     } catch (constraintError) {
-      if (constraintError.code === '42P07' || constraintError.message.includes('already exists')) {
-        console.log('ℹ️  UNIQUE constraint on leads.phone_number already exists');
+      if (
+        constraintError.code === "42P07" ||
+        constraintError.message.includes("already exists")
+      ) {
+        console.log(
+          "ℹ️  UNIQUE constraint on leads.phone_number already exists",
+        );
       } else {
-        console.error('⚠️  Failed to add UNIQUE constraint:', constraintError.message);
+        console.error(
+          "⚠️  Failed to add UNIQUE constraint:",
+          constraintError.message,
+        );
         throw constraintError;
       }
     }
@@ -398,8 +406,11 @@ async function saveLead(session) {
     );
     console.log(`✅ Lead saved for ${session.phone_number}`);
   } catch (error) {
-    console.error(`❌ ERROR saving lead for ${session.phone_number}:`, error.message);
-    console.error('Lead data:', {
+    console.error(
+      `❌ ERROR saving lead for ${session.phone_number}:`,
+      error.message,
+    );
+    console.error("Lead data:", {
       phone: session.phone_number,
       intent: session.lead_data.intent,
       shed_size: session.lead_data.shed_size,

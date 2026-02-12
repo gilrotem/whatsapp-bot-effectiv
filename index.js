@@ -296,17 +296,18 @@ app.post("/telegram_webhook", (req, res) => {
 
       if (adminMsg === "/close" || adminMsg === "סיימנו") {
         await updateSession(customerPhone, { current_state: STATES.WELCOME });
-        await sendTextMessage(
-          PHONE_NUMBER_ID,
-          customerPhone,
-          "השיחה עם הנציג הסתיימה. חזרתי למצב בוט.",
-        );
+        const closeMsg = "השיחה עם הנציג הסתיימה. חזרתי למצב בוט.";
+        await sendTextMessage(PHONE_NUMBER_ID, customerPhone, closeMsg);
+        await logMessage(customerPhone, "text", closeMsg, "outgoing");
+        console.log(`[LOG] Close message saved as outgoing for: ${customerPhone}`);
         await sendToTelegram(`✅ השיחה עם ${customerPhone} נסגרה.`);
         return;
       }
 
       console.log(`📤 Admin replying to ${customerPhone}: ${adminMsg}`);
       await sendTextMessage(PHONE_NUMBER_ID, customerPhone, adminMsg);
+      await logMessage(customerPhone, "text", adminMsg, "outgoing");
+      console.log(`[LOG] Telegram reply saved as outgoing for: ${customerPhone}`);
     })
     .catch((err) => {
       // Never fail the webhook response; just log.
