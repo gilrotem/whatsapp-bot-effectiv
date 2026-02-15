@@ -5,6 +5,7 @@ const crypto = require("crypto");
 require("dotenv").config();
 
 const {
+  pool,
   initDB,
   getSession,
   getSessionByPhone,
@@ -165,6 +166,16 @@ app.post("/webhook", (req, res) => {
     try {
       const session = await getSession(from);
 
+      // Update last customer message timestamp for 24h window tracking
+      try {
+        await pool.query(
+          "UPDATE sessions SET last_customer_message_at = NOW() WHERE phone_number = $1",
+          [from]
+        );
+      } catch (tsErr) {
+        console.error("[DB] Failed to update last_customer_message_at:", tsErr.message);
+      }
+
       // --- Media handling ---
       const MEDIA_TYPES = ["image", "video", "document", "audio", "sticker"];
       const isMedia = MEDIA_TYPES.includes(message.type);
@@ -308,15 +319,14 @@ app.post("/telegram_webhook", (req, res) => {
         await updateSession(customerPhone, { current_state: STATES.WELCOME });
         const closeMsg = "השיחה עם הנציג הסתיימה. חזרתי למצב בוט.";
         await sendTextMessage(PHONE_NUMBER_ID, customerPhone, closeMsg);
-        await logMessage(customerPhone, "text", closeMsg, "outgoing");
-        console.log(`[LOG] Close message saved as outgoing for: ${customerPhone}`);
+        // logMessage now happens inside sendTextMessage() automatically
         await sendToTelegram(`✅ השיחה עם ${customerPhone} נסגרה.`);
         return;
       }
 
       console.log(`📤 Admin replying to ${customerPhone}: ${adminMsg}`);
       await sendTextMessage(PHONE_NUMBER_ID, customerPhone, adminMsg);
-      await logMessage(customerPhone, "text", adminMsg, "outgoing");
+      // logMessage now happens inside sendTextMessage() automatically
       console.log(`[LOG] Telegram reply saved as outgoing for: ${customerPhone}`);
     })
     .catch((err) => {
@@ -537,6 +547,14 @@ async function sendTextMessage(phoneNumberId, to, text) {
       "data:",
       JSON.stringify(resp.data),
     );
+
+    // Log outgoing text message to DB
+    try {
+      await logMessage(to, "text", text, "outgoing");
+    } catch (logErr) {
+      console.error("[LOG] Failed to log outgoing text:", logErr.message);
+    }
+
     return resp;
   } catch (e) {
     console.error(
@@ -660,6 +678,17 @@ async function sendInteractiveMessage(phoneNumberId, to, bodyText, buttons) {
         "Content-Type": "application/json",
       },
     });
+
+    // Log outgoing interactive message to DB
+    try {
+      const buttonLabels = buttons.map(b => ({ id: b.reply.id, title: b.reply.title }));
+      await logMessage(to, "interactive", bodyText, "outgoing", {
+        buttons_json: JSON.stringify(buttonLabels),
+      });
+    } catch (logErr) {
+      console.error("[LOG] Failed to log outgoing interactive:", logErr.message);
+    }
+
   } catch (e) {
     console.error(
       "Failed to send Interactive message:",
@@ -694,6 +723,7 @@ startServer();
 
 module.exports = {
   sendWhatsAppMessage,
+  sendTextMessage,
   uploadMediaToWhatsApp,
   sendMediaMessage,
   getMediaDownloadUrl,

@@ -142,7 +142,7 @@ router.get("/messages/:phone", async (req, res) => {
   }
 });
 
-// POST /api/send-message - Send WhatsApp message from dashboard
+// POST /api/send-message - Send WhatsApp message from dashboard (with 24h window check)
 router.post("/send-message", async (req, res) => {
   try {
     const { phone, message, content, message_type = "text" } = req.body;
@@ -152,23 +152,46 @@ router.post("/send-message", async (req, res) => {
       return res.status(400).json({ error: "Phone and message are required" });
     }
 
-    const { sendWhatsAppMessage } = require("../index");
+    // Check 24h window
+    const { pool } = require("../db");
+    const sessionResult = await pool.query(
+      "SELECT last_customer_message_at FROM sessions WHERE phone_number = $1",
+      [phone]
+    );
+    const lastCustomerMsg = sessionResult.rows[0]?.last_customer_message_at;
 
+    if (!lastCustomerMsg) {
+      return res.status(403).json({
+        error: "24h_window_closed",
+        needs_template: true,
+        message: "No customer message found. Use a template message.",
+        last_customer_message_at: null,
+      });
+    }
+
+    const hoursSince = (Date.now() - new Date(lastCustomerMsg).getTime()) / (1000 * 60 * 60);
+    if (hoursSince > 24) {
+      return res.status(403).json({
+        error: "24h_window_closed",
+        needs_template: true,
+        message: "24h window expired. Use a template message.",
+        last_customer_message_at: lastCustomerMsg,
+        hours_since: Math.round(hoursSince),
+      });
+    }
+
+    // Window is open — send normally
+    const { sendWhatsAppMessage } = require("../index");
     try {
       await sendWhatsAppMessage(phone, msg, message_type);
-
-      // Log outgoing message
-      const { logMessage } = require("../db");
-      await logMessage(phone, message_type, msg, "outgoing");
-      console.log("[LOG] Outgoing message saved for:", phone);
-
-      res.json({ success: true, message: "Message sent successfully" });
+      // logMessage now happens inside sendTextMessage() automatically
+      res.json({
+        success: true,
+        message: "Message sent successfully",
+        window_hours_remaining: Math.round(24 - hoursSince),
+      });
     } catch (waError) {
-      console.error(
-        "[WA] send-message failed:",
-        waError.response?.status,
-        waError.response?.data || waError.message,
-      );
+      console.error("[WA] send-message failed:", waError.response?.status, waError.response?.data || waError.message);
       return res.status(502).json({
         error: "whatsapp_send_failed",
         details: waError.response?.data || waError.message,
@@ -404,6 +427,164 @@ router.delete("/flows/executions/:executionId", async (req, res) => {
   } catch (error) {
     console.error("Error canceling execution:", error);
     res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// --- WhatsApp Templates API ---
+
+// In-memory cache for templates (refreshes every 5 minutes)
+let templatesCache = null;
+let templatesCacheTime = 0;
+const TEMPLATES_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+// GET /api/templates - List approved WhatsApp message templates from Meta
+router.get("/templates", async (req, res) => {
+  try {
+    const now = Date.now();
+
+    // Return cached if fresh
+    if (templatesCache && (now - templatesCacheTime) < TEMPLATES_CACHE_TTL) {
+      return res.json({ templates: templatesCache, cached: true });
+    }
+
+    const WABA_ID = process.env.WABA_ID;
+    const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
+    const VERSION = process.env.VERSION || "v18.0";
+
+    if (!WABA_ID || !WHATSAPP_TOKEN) {
+      return res.status(500).json({ error: "WABA_ID or WHATSAPP_TOKEN not configured" });
+    }
+
+    const axios = require("axios");
+    const response = await axios.get(
+      `https://graph.facebook.com/${VERSION}/${WABA_ID}/message_templates`,
+      {
+        headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` },
+        params: { limit: 100 },
+      }
+    );
+
+    const allTemplates = response.data?.data || [];
+
+    // Map to a clean format
+    const templates = allTemplates.map(t => ({
+      name: t.name,
+      language: t.language,
+      status: t.status,
+      category: t.category,
+      id: t.id,
+      components: t.components || [],
+    }));
+
+    // Cache results
+    templatesCache = templates;
+    templatesCacheTime = now;
+
+    res.json({ templates, cached: false });
+  } catch (error) {
+    console.error("[TEMPLATES] Error fetching from Meta:", error.response?.data || error.message);
+    res.status(502).json({
+      error: "templates_fetch_failed",
+      details: error.response?.data || error.message,
+    });
+  }
+});
+
+// POST /api/send-template - Send a WhatsApp template message
+router.post("/send-template", async (req, res) => {
+  try {
+    const { phone, template_name, language = "he", parameters = {} } = req.body;
+
+    if (!phone || !template_name) {
+      return res.status(400).json({ error: "phone and template_name are required" });
+    }
+
+    const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
+    const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
+    const VERSION = process.env.VERSION || "v18.0";
+
+    if (!WHATSAPP_TOKEN || !PHONE_NUMBER_ID) {
+      return res.status(500).json({ error: "WHATSAPP_TOKEN or PHONE_NUMBER_ID not configured" });
+    }
+
+    // Build components array for template parameters
+    const components = [];
+
+    // Header parameters (if provided)
+    if (parameters.header && parameters.header.length > 0) {
+      components.push({
+        type: "header",
+        parameters: parameters.header.map(val => ({ type: "text", text: String(val) })),
+      });
+    }
+
+    // Body parameters (if provided)
+    if (parameters.body && parameters.body.length > 0) {
+      components.push({
+        type: "body",
+        parameters: parameters.body.map(val => ({ type: "text", text: String(val) })),
+      });
+    }
+
+    // Send via WhatsApp Cloud API
+    const axios = require("axios");
+    const payload = {
+      messaging_product: "whatsapp",
+      to: phone,
+      type: "template",
+      template: {
+        name: template_name,
+        language: { code: language },
+      },
+    };
+
+    // Only add components if there are parameters
+    if (components.length > 0) {
+      payload.template.components = components;
+    }
+
+    const response = await axios.post(
+      `https://graph.facebook.com/${VERSION}/${PHONE_NUMBER_ID}/messages`,
+      payload,
+      {
+        headers: {
+          Authorization: `Bearer ${WHATSAPP_TOKEN}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    console.log("[TEMPLATE] Sent", template_name, "to", phone, "response:", response.data);
+
+    // Log to messages DB
+    const { logMessage } = require("../db");
+    try {
+      await logMessage(phone, "template", `[Template: ${template_name}]`, "outgoing", {
+        buttons_json: JSON.stringify({ template_name, language, parameters }),
+      });
+    } catch (logErr) {
+      console.error("[LOG] Failed to log template message:", logErr.message);
+    }
+
+    res.json({
+      success: true,
+      message: "Template sent successfully",
+      template_name,
+      wa_response: response.data,
+    });
+  } catch (error) {
+    console.error("[TEMPLATE] Send failed:", error.response?.data || error.message);
+
+    // Check for specific Meta API errors
+    const metaError = error.response?.data?.error;
+    const errorCode = metaError?.code;
+    const errorMsg = metaError?.message || error.message;
+
+    res.status(502).json({
+      error: "template_send_failed",
+      details: errorMsg,
+      meta_error_code: errorCode || null,
+    });
   }
 });
 

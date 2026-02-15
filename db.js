@@ -117,6 +117,14 @@ async function initDB() {
             );
         `);
 
+    // Migration: track last customer message time for 24h window
+    await client.query(`
+      DO $$ BEGIN
+        ALTER TABLE sessions ADD COLUMN last_customer_message_at TIMESTAMPTZ;
+      EXCEPTION WHEN duplicate_column THEN NULL;
+      END $$;
+    `);
+
     // Clean up any duplicate leads before adding unique constraint
     // Keep only the most recent lead for each phone number
     await client.query(`
@@ -178,6 +186,7 @@ async function initDB() {
       { name: "media_caption", type: "TEXT" },
       { name: "wa_message_id", type: "TEXT" },
       { name: "wa_media_id", type: "TEXT" },
+      { name: "buttons_json", type: "TEXT" },
     ];
     for (const col of migrationCols) {
       await client.query(`
@@ -423,20 +432,14 @@ async function saveLead(session) {
   }
 }
 
-// Log message (supports optional media fields)
-async function logMessage(
-  phoneNumber,
-  messageType,
-  content,
-  direction,
-  extra = {},
-) {
+// Log message (supports optional media fields + buttons_json)
+async function logMessage(phoneNumber, messageType, content, direction, extra = {}) {
   const client = await pool.connect();
   try {
     await client.query(
       `INSERT INTO messages (phone_number, message_type, message_content, direction,
-             media_url, media_mime, media_caption, wa_message_id, wa_media_id)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+             media_url, media_mime, media_caption, wa_message_id, wa_media_id, buttons_json)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
       [
         phoneNumber,
         messageType,
@@ -447,6 +450,7 @@ async function logMessage(
         extra.media_caption || null,
         extra.wa_message_id || null,
         extra.wa_media_id || null,
+        extra.buttons_json || null,
       ],
     );
   } finally {
@@ -594,7 +598,7 @@ async function getMessagesByPhone(phone, limit = 50, offset = 0) {
     const query = `
             SELECT id, phone_number, message_type, message_content, direction,
                    media_url, media_mime, media_caption, wa_message_id, wa_media_id,
-                   created_at
+                   buttons_json, created_at
             FROM messages 
             WHERE phone_number = $1 
             ORDER BY created_at ASC 
