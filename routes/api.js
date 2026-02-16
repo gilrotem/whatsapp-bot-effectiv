@@ -24,13 +24,17 @@ if (process.env.DATABASE_URL) {
 
 const router = express.Router();
 
-/** Normalize Israeli phone to WhatsApp 972 format */
+/** Normalize Israeli phone to WhatsApp 972 format (always 12 digits) */
 function normalizePhone(phone) {
   if (!phone) return phone;
   const digits = phone.replace(/\D/g, "");
-  if (digits.startsWith("972") && digits.length >= 11) return digits;
-  if (digits.startsWith("0") && digits.length >= 10) return "972" + digits.slice(1);
-  if (digits.length === 9 && digits.startsWith("5")) return "972" + digits;
+  // International: 972 + 9 digits → take exactly 12 chars
+  if (digits.startsWith("972") && digits.length >= 12) return digits.slice(0, 12);
+  if (digits.startsWith("972")) return digits; // shorter than 12 — partial
+  // Local: 0XX-XXXXXXX → strip leading 0, take exactly 9 digits
+  if (digits.startsWith("0") && digits.length >= 10) return "972" + digits.slice(1, 10);
+  // Bare 9-digit
+  if (digits.length === 9 && /^[2-9]/.test(digits)) return "972" + digits;
   return digits;
 }
 
@@ -83,7 +87,23 @@ router.get("/leads", async (req, res) => {
     const { status, intent, city, limit = 50, offset = 0 } = req.query;
     const filters = { status, intent, city };
     const leads = await getLeads(filters, parseInt(limit), parseInt(offset));
-    res.json(leads);
+
+    // Normalize phone numbers and deduplicate (keep entry with latest message)
+    const seen = new Map();
+    for (const lead of leads) {
+      const norm = normalizePhone(lead.phone_number);
+      const existing = seen.get(norm);
+      if (
+        !existing ||
+        (lead.last_message_at &&
+          (!existing.last_message_at ||
+            new Date(lead.last_message_at) > new Date(existing.last_message_at)))
+      ) {
+        seen.set(norm, { ...lead, phone_number: norm });
+      }
+    }
+
+    res.json(Array.from(seen.values()));
   } catch (error) {
     console.error("Error fetching leads:", error);
     res.status(500).json({ error: "Internal server error" });
