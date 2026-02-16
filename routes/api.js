@@ -24,6 +24,16 @@ if (process.env.DATABASE_URL) {
 
 const router = express.Router();
 
+/** Normalize Israeli phone to WhatsApp 972 format */
+function normalizePhone(phone) {
+  if (!phone) return phone;
+  const digits = phone.replace(/\D/g, "");
+  if (digits.startsWith("972") && digits.length >= 11) return digits;
+  if (digits.startsWith("0") && digits.length >= 10) return "972" + digits.slice(1);
+  if (digits.length === 9 && digits.startsWith("5")) return "972" + digits;
+  return digits;
+}
+
 console.log(
   "API_TOKEN environment variable:",
   process.env.API_TOKEN ? "EXISTS" : "MISSING",
@@ -83,7 +93,7 @@ router.get("/leads", async (req, res) => {
 // GET /api/leads/:phone - Get specific lead with session data
 router.get("/leads/:phone", async (req, res) => {
   try {
-    const { phone } = req.params;
+    const phone = normalizePhone(req.params.phone);
     const lead = await getLeadByPhone(phone);
 
     if (!lead) {
@@ -100,7 +110,7 @@ router.get("/leads/:phone", async (req, res) => {
 // PUT /api/leads/:phone - Update lead status
 router.put("/leads/:phone", async (req, res) => {
   try {
-    const { phone } = req.params;
+    const phone = normalizePhone(req.params.phone);
     const { status, notes } = req.body;
 
     if (!status) {
@@ -127,7 +137,7 @@ router.put("/leads/:phone", async (req, res) => {
 // GET /api/messages/:phone - Get message history for specific lead
 router.get("/messages/:phone", async (req, res) => {
   try {
-    const { phone } = req.params;
+    const phone = normalizePhone(req.params.phone);
     const { limit = 50, offset = 0 } = req.query;
 
     const messages = await getMessagesByPhone(
@@ -145,7 +155,8 @@ router.get("/messages/:phone", async (req, res) => {
 // POST /api/send-message - Send WhatsApp message from dashboard (with 24h window check)
 router.post("/send-message", async (req, res) => {
   try {
-    const { phone, message, content, message_type = "text" } = req.body;
+    const { phone: rawPhone, message, content, message_type = "text" } = req.body;
+    const phone = normalizePhone(rawPhone);
     const msg = message || content;
 
     if (!phone || !msg) {
@@ -232,7 +243,8 @@ function mimeToMediaType(mime) {
 // POST /api/send-media - Send media message from CRM dashboard
 router.post("/send-media", upload.single("file"), async (req, res) => {
   try {
-    const { phone, caption } = req.body;
+    const phone = normalizePhone(req.body.phone);
+    const caption = req.body.caption;
     const file = req.file;
 
     if (!phone || !file) {
@@ -493,7 +505,8 @@ router.get("/templates", async (req, res) => {
 // POST /api/send-template - Send a WhatsApp template message
 router.post("/send-template", async (req, res) => {
   try {
-    const { phone, template_name, language = "he", parameters = {} } = req.body;
+    const { phone: rawPhone, template_name, language = "he", parameters = {} } = req.body;
+    const phone = normalizePhone(rawPhone);
 
     if (!phone || !template_name) {
       return res.status(400).json({ error: "phone and template_name are required" });
